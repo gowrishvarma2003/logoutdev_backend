@@ -1,4 +1,4 @@
-const { ProjectSpaceMember, User } = require('../../models');
+const { ProjectSpaceMember, ProjectSpaceRepo, ProjectSpaceRepoMember, User } = require('../../models');
 const {
   getSpaceOr404,
   ensureSpaceReadable,
@@ -93,6 +93,20 @@ async function removeContributor(req, res) {
     await ProjectSpaceMember.destroy({
       where: { space_id: spaceId, user_id: userId },
     });
+
+    const repos = await ProjectSpaceRepo.findAll({
+      where: { space_id: spaceId },
+      attributes: ['id'],
+    });
+    const repoIds = repos.map((repo) => repo.id);
+    if (repoIds.length > 0) {
+      await ProjectSpaceRepoMember.destroy({
+        where: {
+          repo_id: repoIds,
+          user_id: userId,
+        },
+      });
+    }
 
     return res.json({ removed: true });
   } catch (error) {

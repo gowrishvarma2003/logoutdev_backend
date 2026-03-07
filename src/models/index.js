@@ -3,6 +3,7 @@ const { DataTypes } = require('sequelize');
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 const User        = require('./auth/User');
+const UserAccessToken = require('./auth/UserAccessToken');
 const Post        = require('./feed/Post');
 const PostLike    = require('./feed/PostLike');
 const Repost      = require('./feed/Repost');
@@ -15,6 +16,8 @@ const ProjectSpaceJoinRequest = require('./spaces/ProjectSpaceJoinRequest');
 const ProjectSpaceDiscussion = require('./spaces/ProjectSpaceDiscussion');
 const ProjectSpaceDiscussionReply = require('./spaces/ProjectSpaceDiscussionReply');
 const ProjectSpaceUpdate = require('./spaces/ProjectSpaceUpdate');
+const ProjectSpaceRepo = require('./spaces/ProjectSpaceRepo');
+const ProjectSpaceRepoMember = require('./spaces/ProjectSpaceRepoMember');
 const UserProfileSkill = require('./profile/UserProfileSkill');
 const UserFeaturedProject = require('./profile/UserFeaturedProject');
 
@@ -89,6 +92,21 @@ ProjectSpaceDiscussionReply.belongsTo(ProjectSpaceDiscussionReply, {
 ProjectSpace.hasMany(ProjectSpaceUpdate, { foreignKey: 'space_id', as: 'updates' });
 ProjectSpaceUpdate.belongsTo(ProjectSpace, { foreignKey: 'space_id', as: 'space' });
 ProjectSpaceUpdate.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+
+// ProjectSpace ↔ Repositories
+ProjectSpace.hasMany(ProjectSpaceRepo, { foreignKey: 'space_id', as: 'repos' });
+ProjectSpaceRepo.belongsTo(ProjectSpace, { foreignKey: 'space_id', as: 'space' });
+ProjectSpaceRepo.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+
+// Repositories ↔ Members
+ProjectSpaceRepo.hasMany(ProjectSpaceRepoMember, { foreignKey: 'repo_id', as: 'members' });
+ProjectSpaceRepoMember.belongsTo(ProjectSpaceRepo, { foreignKey: 'repo_id', as: 'repo' });
+ProjectSpaceRepoMember.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+User.hasMany(ProjectSpaceRepoMember, { foreignKey: 'user_id', as: 'repo_memberships' });
+
+// User ↔ Access tokens
+User.hasMany(UserAccessToken, { foreignKey: 'user_id', as: 'access_tokens' });
+UserAccessToken.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // User ↔ Profile Skills
 User.hasMany(UserProfileSkill, { foreignKey: 'user_id', as: 'profile_skills' });
@@ -234,6 +252,7 @@ module.exports = {
   sequelize,
   // Auth
   User,
+  UserAccessToken,
   // Feed
   Post,
   PostLike,
@@ -249,6 +268,8 @@ module.exports = {
   ProjectSpaceDiscussion,
   ProjectSpaceDiscussionReply,
   ProjectSpaceUpdate,
+  ProjectSpaceRepo,
+  ProjectSpaceRepoMember,
   UserProfileSkill,
   UserFeaturedProject,
   // Bootstrap

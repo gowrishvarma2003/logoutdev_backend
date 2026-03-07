@@ -39,6 +39,24 @@ const {
   updateUpdate,
   deleteUpdate,
 } = require('../../controllers/spaces/updateController');
+const {
+  listRepos,
+  createRepo,
+  getRepo,
+  updateRepo,
+  archiveRepo,
+} = require('../../controllers/spaces/repoController');
+const {
+  listRepoMembers,
+  upsertRepoMember,
+  removeRepoMember,
+} = require('../../controllers/spaces/repoMemberController');
+const {
+  getTree,
+  getBlob,
+  getReadme,
+  getCommits,
+} = require('../../controllers/spaces/repoReadController');
 const { getHealth, getDecisions } = require('../../controllers/spaces/signalController');
 
 const router = express.Router();
@@ -79,5 +97,20 @@ router.patch('/:spaceId/discussions/:threadId', updateDiscussion);
 router.post('/:spaceId/updates', updateRateLimiter, createUpdate);
 router.patch('/:spaceId/updates/:updateId', updateUpdate);
 router.delete('/:spaceId/updates/:updateId', deleteUpdate);
+
+router.get('/:spaceId/repos', listRepos);
+router.post('/:spaceId/repos', createRepo);
+router.get('/:spaceId/repos/:repoId', getRepo);
+router.patch('/:spaceId/repos/:repoId', updateRepo);
+router.delete('/:spaceId/repos/:repoId', archiveRepo);
+
+router.get('/:spaceId/repos/:repoId/members', listRepoMembers);
+router.put('/:spaceId/repos/:repoId/members/:userId', upsertRepoMember);
+router.delete('/:spaceId/repos/:repoId/members/:userId', removeRepoMember);
+
+router.get('/:spaceId/repos/:repoId/tree', getTree);
+router.get('/:spaceId/repos/:repoId/blob', getBlob);
+router.get('/:spaceId/repos/:repoId/readme', getReadme);
+router.get('/:spaceId/repos/:repoId/commits', getCommits);
 
 module.exports = router;
