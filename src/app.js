@@ -8,6 +8,8 @@ const spaceRoutes = require('./routes/spaces/spaceRoutes');
 const profileRoutes = require('./routes/profiles/profileRoutes');
 const gitRoutes = require('./routes/git/gitRoutes');
 const questionRoutes = require('./routes/questions/questionRoutes');
+const freelanceRoutes = require('./routes/freelance/freelanceRoutes');
+const freelanceMeRoutes = require('./routes/freelance/freelanceMeRoutes');
 
 const app = express();
 
@@ -25,6 +27,8 @@ app.use('/api/users', followRoutes);
 app.use('/api/spaces', spaceRoutes);
 app.use('/api/profiles', profileRoutes);
 app.use('/api/questions', questionRoutes);
+app.use('/api/freelance', freelanceRoutes);
+app.use('/api/users/me/freelance', freelanceMeRoutes);
 app.use('/git', gitRoutes);
 
 module.exports = app;

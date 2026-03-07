@@ -18,6 +18,9 @@ const ProjectSpaceDiscussionReply = require('./spaces/ProjectSpaceDiscussionRepl
 const ProjectSpaceUpdate = require('./spaces/ProjectSpaceUpdate');
 const ProjectSpaceRepo = require('./spaces/ProjectSpaceRepo');
 const ProjectSpaceRepoMember = require('./spaces/ProjectSpaceRepoMember');
+const FreelanceProject = require('./freelance/FreelanceProject');
+const FreelanceProjectSkill = require('./freelance/FreelanceProjectSkill');
+const FreelanceProposal = require('./freelance/FreelanceProposal');
 const Question = require('./questions/Question');
 const QuestionOption = require('./questions/QuestionOption');
 const QuestionMcqResponse = require('./questions/QuestionMcqResponse');
@@ -170,6 +173,21 @@ User.hasMany(UserFeaturedProject, { foreignKey: 'user_id', as: 'featured_project
 UserFeaturedProject.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 ProjectSpace.hasMany(UserFeaturedProject, { foreignKey: 'space_id', as: 'featured_by_users' });
 UserFeaturedProject.belongsTo(ProjectSpace, { foreignKey: 'space_id', as: 'space' });
+
+User.hasMany(FreelanceProject, { foreignKey: 'client_id', as: 'client_projects' });
+FreelanceProject.belongsTo(User, { foreignKey: 'client_id', as: 'client' });
+FreelanceProject.hasMany(FreelanceProjectSkill, { foreignKey: 'project_id', as: 'skills' });
+FreelanceProjectSkill.belongsTo(FreelanceProject, { foreignKey: 'project_id', as: 'project' });
+FreelanceProject.hasMany(FreelanceProposal, { foreignKey: 'project_id', as: 'proposals' });
+FreelanceProposal.belongsTo(FreelanceProject, { foreignKey: 'project_id', as: 'project' });
+FreelanceProposal.belongsTo(User, { foreignKey: 'freelancer_id', as: 'freelancer' });
+User.hasMany(FreelanceProposal, { foreignKey: 'freelancer_id', as: 'freelance_proposals' });
+FreelanceProject.belongsTo(ProjectSpace, { foreignKey: 'linked_space_id', as: 'linked_space' });
+FreelanceProject.belongsTo(FreelanceProposal, {
+  foreignKey: 'accepted_proposal_id',
+  as: 'accepted_proposal',
+  constraints: false,
+});
 
 async function ensureUserProfileColumns() {
   const queryInterface = sequelize.getQueryInterface();
@@ -360,6 +378,9 @@ module.exports = {
   ProjectSpaceUpdate,
   ProjectSpaceRepo,
   ProjectSpaceRepoMember,
+  FreelanceProject,
+  FreelanceProjectSkill,
+  FreelanceProposal,
   Question,
   QuestionOption,
   QuestionMcqResponse,
