@@ -18,6 +18,13 @@ const ProjectSpaceDiscussionReply = require('./spaces/ProjectSpaceDiscussionRepl
 const ProjectSpaceUpdate = require('./spaces/ProjectSpaceUpdate');
 const ProjectSpaceRepo = require('./spaces/ProjectSpaceRepo');
 const ProjectSpaceRepoMember = require('./spaces/ProjectSpaceRepoMember');
+const Question = require('./questions/Question');
+const QuestionOption = require('./questions/QuestionOption');
+const QuestionMcqResponse = require('./questions/QuestionMcqResponse');
+const QuestionAnswer = require('./questions/QuestionAnswer');
+const QuestionAnswerVote = require('./questions/QuestionAnswerVote');
+const QuestionDiscussionComment = require('./questions/QuestionDiscussionComment');
+const QuestionTag = require('./questions/QuestionTag');
 const UserProfileSkill = require('./profile/UserProfileSkill');
 const UserFeaturedProject = require('./profile/UserFeaturedProject');
 
@@ -107,6 +114,52 @@ User.hasMany(ProjectSpaceRepoMember, { foreignKey: 'user_id', as: 'repo_membersh
 // User ↔ Access tokens
 User.hasMany(UserAccessToken, { foreignKey: 'user_id', as: 'access_tokens' });
 UserAccessToken.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// User ↔ Questions
+User.hasMany(Question, { foreignKey: 'author_id', as: 'questions' });
+Question.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+
+// Question ↔ Options
+Question.hasMany(QuestionOption, { foreignKey: 'question_id', as: 'options' });
+QuestionOption.belongsTo(Question, { foreignKey: 'question_id', as: 'question' });
+
+// Question ↔ Responses
+Question.hasMany(QuestionMcqResponse, { foreignKey: 'question_id', as: 'responses' });
+QuestionMcqResponse.belongsTo(Question, { foreignKey: 'question_id', as: 'question' });
+QuestionMcqResponse.belongsTo(QuestionOption, { foreignKey: 'option_id', as: 'option' });
+QuestionOption.hasMany(QuestionMcqResponse, { foreignKey: 'option_id', as: 'responses' });
+QuestionMcqResponse.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+User.hasMany(QuestionMcqResponse, { foreignKey: 'user_id', as: 'question_responses' });
+
+// Question ↔ Answers
+Question.hasMany(QuestionAnswer, { foreignKey: 'question_id', as: 'answers' });
+QuestionAnswer.belongsTo(Question, { foreignKey: 'question_id', as: 'question' });
+QuestionAnswer.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+User.hasMany(QuestionAnswer, { foreignKey: 'author_id', as: 'question_answers' });
+
+// Question Answer ↔ Votes
+QuestionAnswer.hasMany(QuestionAnswerVote, { foreignKey: 'answer_id', as: 'votes' });
+QuestionAnswerVote.belongsTo(QuestionAnswer, { foreignKey: 'answer_id', as: 'answer' });
+QuestionAnswerVote.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+User.hasMany(QuestionAnswerVote, { foreignKey: 'user_id', as: 'question_answer_votes' });
+
+// Question ↔ Discussion comments
+Question.hasMany(QuestionDiscussionComment, { foreignKey: 'question_id', as: 'discussion_comments' });
+QuestionDiscussionComment.belongsTo(Question, { foreignKey: 'question_id', as: 'question' });
+QuestionDiscussionComment.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+User.hasMany(QuestionDiscussionComment, { foreignKey: 'author_id', as: 'question_discussion_comments' });
+QuestionDiscussionComment.hasMany(QuestionDiscussionComment, {
+  foreignKey: 'parent_comment_id',
+  as: 'children',
+});
+QuestionDiscussionComment.belongsTo(QuestionDiscussionComment, {
+  foreignKey: 'parent_comment_id',
+  as: 'parent',
+});
+
+// Question ↔ Tags
+Question.hasMany(QuestionTag, { foreignKey: 'question_id', as: 'tags' });
+QuestionTag.belongsTo(Question, { foreignKey: 'question_id', as: 'question' });
 
 // User ↔ Profile Skills
 User.hasMany(UserProfileSkill, { foreignKey: 'user_id', as: 'profile_skills' });
@@ -239,12 +292,49 @@ async function ensureDiscussionReplyColumns() {
   }
 }
 
+async function ensureQuestionDiscussionColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+
+  try {
+    const table = await queryInterface.describeTable('question_discussion_comments');
+
+    if (!table.parent_comment_id) {
+      await queryInterface.addColumn('question_discussion_comments', 'parent_comment_id', {
+        type: DataTypes.UUID,
+        allowNull: true,
+      });
+    }
+  } catch (error) {
+    // Table may not exist on first boot; sequelize.sync() creates it.
+  }
+}
+
+async function ensureQuestionOptionColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+
+  try {
+    const table = await queryInterface.describeTable('question_options');
+
+    if (!table.is_correct) {
+      await queryInterface.addColumn('question_options', 'is_correct', {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      });
+    }
+  } catch (error) {
+    // Table may not exist on first boot; sequelize.sync() creates it.
+  }
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function initModels() {
   await sequelize.authenticate();
   await sequelize.sync();
   await ensureUserProfileColumns();
   await ensureDiscussionReplyColumns();
+  await ensureQuestionDiscussionColumns();
+  await ensureQuestionOptionColumns();
   await backfillMissingUsernames();
 }
 
@@ -270,6 +360,13 @@ module.exports = {
   ProjectSpaceUpdate,
   ProjectSpaceRepo,
   ProjectSpaceRepoMember,
+  Question,
+  QuestionOption,
+  QuestionMcqResponse,
+  QuestionAnswer,
+  QuestionAnswerVote,
+  QuestionDiscussionComment,
+  QuestionTag,
   UserProfileSkill,
   UserFeaturedProject,
   // Bootstrap

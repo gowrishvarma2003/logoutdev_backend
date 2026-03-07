@@ -7,6 +7,7 @@ const followRoutes = require('./routes/social/followRoutes');
 const spaceRoutes = require('./routes/spaces/spaceRoutes');
 const profileRoutes = require('./routes/profiles/profileRoutes');
 const gitRoutes = require('./routes/git/gitRoutes');
+const questionRoutes = require('./routes/questions/questionRoutes');
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/posts', postRoutes);
 app.use('/api/users', followRoutes);
 app.use('/api/spaces', spaceRoutes);
 app.use('/api/profiles', profileRoutes);
+app.use('/api/questions', questionRoutes);
 app.use('/git', gitRoutes);
 
 module.exports = app;
