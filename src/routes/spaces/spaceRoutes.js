@@ -6,6 +6,7 @@ const {
   joinRequestRateLimiter,
   discussionRateLimiter,
   updateRateLimiter,
+  issueWriteRateLimiter,
 } = require('../../middleware/spacesRateLimiter');
 
 const {
@@ -40,6 +41,12 @@ const {
   deleteUpdate,
 } = require('../../controllers/spaces/updateController');
 const {
+  listIssues,
+  getIssue,
+  createIssue,
+  updateIssue,
+} = require('../../controllers/spaces/issueController');
+const {
   listRepos,
   createRepo,
   getRepo,
@@ -71,6 +78,8 @@ router.get('/:spaceId/contributors', getContributors);
 router.get('/:spaceId/discussions', listDiscussions);
 router.get('/:spaceId/discussions/:threadId', getDiscussion);
 router.get('/:spaceId/updates', listUpdates);
+router.get('/:spaceId/issues', listIssues);
+router.get('/:spaceId/issues/:issueId', getIssue);
 router.get('/:spaceId/health', getHealth);
 router.get('/:spaceId/decisions', getDecisions);
 
@@ -97,6 +106,9 @@ router.patch('/:spaceId/discussions/:threadId', updateDiscussion);
 router.post('/:spaceId/updates', updateRateLimiter, createUpdate);
 router.patch('/:spaceId/updates/:updateId', updateUpdate);
 router.delete('/:spaceId/updates/:updateId', deleteUpdate);
+
+router.post('/:spaceId/issues', issueWriteRateLimiter, createIssue);
+router.patch('/:spaceId/issues/:issueId', issueWriteRateLimiter, updateIssue);
 
 router.get('/:spaceId/repos', listRepos);
 router.post('/:spaceId/repos', createRepo);

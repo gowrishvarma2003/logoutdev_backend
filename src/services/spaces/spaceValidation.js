@@ -7,6 +7,8 @@ const JOIN_REVIEW_ACTIONS = new Set(['accept', 'reject', 'need-info', 'request-m
 const DISCUSSION_CATEGORIES = new Set(['idea', 'decision', 'question', 'blocked', 'retrospective']);
 const DISCUSSION_STATUSES = new Set(['open', 'in-progress', 'resolved', 'closed']);
 const UPDATE_TYPES = new Set(['milestone', 'devlog', 'release', 'blocker', 'weekly-summary']);
+const ISSUE_STATUSES = new Set(['open', 'triaged', 'in-progress', 'resolved', 'closed']);
+const ISSUE_PRIORITIES = new Set(['low', 'medium', 'high', 'critical']);
 const REPO_MEMBER_ROLES = new Set(['read', 'write']);
 
 function slugify(value) {
@@ -61,6 +63,8 @@ module.exports = {
   DISCUSSION_CATEGORIES,
   DISCUSSION_STATUSES,
   UPDATE_TYPES,
+  ISSUE_STATUSES,
+  ISSUE_PRIORITIES,
   REPO_MEMBER_ROLES,
   slugify,
   asTrimmedString,

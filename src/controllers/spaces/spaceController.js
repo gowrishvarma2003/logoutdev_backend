@@ -3,6 +3,7 @@ const {
   ProjectSpace,
   ProjectSpaceMember,
   ProjectSpaceStack,
+  Launch,
   User,
 } = require('../../models');
 const {
@@ -87,10 +88,15 @@ async function createSpace(req, res) {
 async function listSpaces(req, res) {
   try {
     const requesterId = req.user?.userId;
+    const mine = String(req.query.mine || '').toLowerCase() === 'true';
     const status = asTrimmedString(req.query.status || '');
     const visibility = asTrimmedString(req.query.visibility || 'public');
     const tag = asTrimmedString(req.query.tag || '').toLowerCase();
     const { limit, page, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+
+    if (mine && !requesterId) {
+      return res.status(401).json({ error: 'Authentication required to view your spaces.' });
+    }
 
     const where = {};
     if (status && isAllowedValue(status, SPACE_STATUSES)) {
@@ -99,7 +105,7 @@ async function listSpaces(req, res) {
 
     if (visibility && isAllowedValue(visibility, SPACE_VISIBILITIES)) {
       where.visibility = visibility;
-    } else {
+    } else if (!mine) {
       where.visibility = 'public';
     }
 
@@ -137,6 +143,18 @@ async function listSpaces(req, res) {
       distinct: true,
     });
 
+    if (mine) {
+      const eligibleSpaces = spaces.filter(
+        (space) =>
+          space.owner_id === requesterId
+          || space.members.some(
+            (member) => member.user_id === requesterId && ['owner', 'maintainer'].includes(member.role)
+          )
+      );
+
+      return res.json({ spaces: eligibleSpaces, total: eligibleSpaces.length, page, limit });
+    }
+
     if (where.visibility === 'private') {
       const filteredSpaces = spaces.filter(
         (space) =>
@@ -168,6 +186,12 @@ async function getSpace(req, res) {
           include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email'] }],
         },
         { model: ProjectSpaceStack, as: 'stack', attributes: ['id', 'category', 'technology', 'maturity'] },
+        {
+          model: Launch,
+          as: 'linked_launch',
+          attributes: ['id', 'name', 'slug', 'tagline', 'status', 'upvote_count', 'review_count'],
+          required: false,
+        },
       ],
     });
 

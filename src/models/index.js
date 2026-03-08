@@ -16,8 +16,16 @@ const ProjectSpaceJoinRequest = require('./spaces/ProjectSpaceJoinRequest');
 const ProjectSpaceDiscussion = require('./spaces/ProjectSpaceDiscussion');
 const ProjectSpaceDiscussionReply = require('./spaces/ProjectSpaceDiscussionReply');
 const ProjectSpaceUpdate = require('./spaces/ProjectSpaceUpdate');
+const ProjectSpaceIssue = require('./spaces/ProjectSpaceIssue');
 const ProjectSpaceRepo = require('./spaces/ProjectSpaceRepo');
 const ProjectSpaceRepoMember = require('./spaces/ProjectSpaceRepoMember');
+const Launch = require('./launches/Launch');
+const LaunchScreenshot = require('./launches/LaunchScreenshot');
+const LaunchTechStack = require('./launches/LaunchTechStack');
+const LaunchUpvote = require('./launches/LaunchUpvote');
+const LaunchReview = require('./launches/LaunchReview');
+const LaunchFeedbackItem = require('./launches/LaunchFeedbackItem');
+const LaunchFeedbackComment = require('./launches/LaunchFeedbackComment');
 const FreelanceProject = require('./freelance/FreelanceProject');
 const FreelanceProjectSkill = require('./freelance/FreelanceProjectSkill');
 const FreelanceProposal = require('./freelance/FreelanceProposal');
@@ -103,6 +111,14 @@ ProjectSpace.hasMany(ProjectSpaceUpdate, { foreignKey: 'space_id', as: 'updates'
 ProjectSpaceUpdate.belongsTo(ProjectSpace, { foreignKey: 'space_id', as: 'space' });
 ProjectSpaceUpdate.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
 
+// ProjectSpace ↔ Issues
+ProjectSpace.hasMany(ProjectSpaceIssue, { foreignKey: 'space_id', as: 'issues' });
+ProjectSpaceIssue.belongsTo(ProjectSpace, { foreignKey: 'space_id', as: 'space' });
+ProjectSpaceIssue.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+ProjectSpaceIssue.belongsTo(User, { foreignKey: 'assignee_user_id', as: 'assignee' });
+User.hasMany(ProjectSpaceIssue, { foreignKey: 'author_id', as: 'reported_space_issues' });
+User.hasMany(ProjectSpaceIssue, { foreignKey: 'assignee_user_id', as: 'assigned_space_issues' });
+
 // ProjectSpace ↔ Repositories
 ProjectSpace.hasMany(ProjectSpaceRepo, { foreignKey: 'space_id', as: 'repos' });
 ProjectSpaceRepo.belongsTo(ProjectSpace, { foreignKey: 'space_id', as: 'space' });
@@ -173,6 +189,31 @@ User.hasMany(UserFeaturedProject, { foreignKey: 'user_id', as: 'featured_project
 UserFeaturedProject.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 ProjectSpace.hasMany(UserFeaturedProject, { foreignKey: 'space_id', as: 'featured_by_users' });
 UserFeaturedProject.belongsTo(ProjectSpace, { foreignKey: 'space_id', as: 'space' });
+
+User.hasMany(Launch, { foreignKey: 'builder_id', as: 'launches' });
+Launch.belongsTo(User, { foreignKey: 'builder_id', as: 'builder' });
+ProjectSpace.hasOne(Launch, { foreignKey: 'linked_space_id', as: 'linked_launch' });
+Launch.belongsTo(ProjectSpace, { foreignKey: 'linked_space_id', as: 'linked_space' });
+Launch.hasMany(LaunchScreenshot, { foreignKey: 'launch_id', as: 'screenshots' });
+LaunchScreenshot.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
+Launch.hasMany(LaunchTechStack, { foreignKey: 'launch_id', as: 'tech_stack' });
+LaunchTechStack.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
+Launch.hasMany(LaunchUpvote, { foreignKey: 'launch_id', as: 'upvotes' });
+LaunchUpvote.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
+LaunchUpvote.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+User.hasMany(LaunchUpvote, { foreignKey: 'user_id', as: 'launch_upvotes' });
+Launch.hasMany(LaunchReview, { foreignKey: 'launch_id', as: 'reviews' });
+LaunchReview.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
+LaunchReview.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+User.hasMany(LaunchReview, { foreignKey: 'author_id', as: 'launch_reviews' });
+Launch.hasMany(LaunchFeedbackItem, { foreignKey: 'launch_id', as: 'feedback_items' });
+LaunchFeedbackItem.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
+LaunchFeedbackItem.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+User.hasMany(LaunchFeedbackItem, { foreignKey: 'author_id', as: 'launch_feedback_items' });
+LaunchFeedbackItem.hasMany(LaunchFeedbackComment, { foreignKey: 'feedback_id', as: 'comments' });
+LaunchFeedbackComment.belongsTo(LaunchFeedbackItem, { foreignKey: 'feedback_id', as: 'feedback' });
+LaunchFeedbackComment.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+User.hasMany(LaunchFeedbackComment, { foreignKey: 'author_id', as: 'launch_feedback_comments' });
 
 User.hasMany(FreelanceProject, { foreignKey: 'client_id', as: 'client_projects' });
 FreelanceProject.belongsTo(User, { foreignKey: 'client_id', as: 'client' });
@@ -376,8 +417,16 @@ module.exports = {
   ProjectSpaceDiscussion,
   ProjectSpaceDiscussionReply,
   ProjectSpaceUpdate,
+  ProjectSpaceIssue,
   ProjectSpaceRepo,
   ProjectSpaceRepoMember,
+  Launch,
+  LaunchScreenshot,
+  LaunchTechStack,
+  LaunchUpvote,
+  LaunchReview,
+  LaunchFeedbackItem,
+  LaunchFeedbackComment,
   FreelanceProject,
   FreelanceProjectSkill,
   FreelanceProposal,

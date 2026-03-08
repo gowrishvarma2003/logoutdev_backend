@@ -54,9 +54,17 @@ const updateRateLimiter = createRateLimiter({
   message: 'Too many update actions. Please try again shortly.',
 });
 
+const issueWriteRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 20,
+  keyPrefix: 'spaces:issue-write',
+  message: 'Too many issue actions. Please try again shortly.',
+});
+
 module.exports = {
   createSpaceRateLimiter,
   joinRequestRateLimiter,
   discussionRateLimiter,
   updateRateLimiter,
+  issueWriteRateLimiter,
 };
