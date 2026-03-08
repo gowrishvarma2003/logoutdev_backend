@@ -3,6 +3,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth/authRoutes');
 const accessTokenRoutes = require('./routes/auth/accessTokenRoutes');
 const postRoutes = require('./routes/feed/postRoutes');
+const hashtagRoutes = require('./routes/feed/hashtagRoutes');
 const followRoutes = require('./routes/social/followRoutes');
 const spaceRoutes = require('./routes/spaces/spaceRoutes');
 const profileRoutes = require('./routes/profiles/profileRoutes');
@@ -24,6 +25,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users/me/access-tokens', accessTokenRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/api/hashtags', hashtagRoutes);
 app.use('/api/users', followRoutes);
 app.use('/api/spaces', spaceRoutes);
 app.use('/api/profiles', profileRoutes);

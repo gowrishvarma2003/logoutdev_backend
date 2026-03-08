@@ -1,6 +1,15 @@
 const express = require('express');
 const authMiddleware = require('../../middleware/authMiddleware');
-const { createPost, getFeed, getExplore, getPost, deletePost, createReply, getReplies } = require('../../controllers/feed/postController');
+const {
+  createPost,
+  getFeed,
+  getExplore,
+  getPost,
+  deletePost,
+  createReply,
+  getReplies,
+  getPostsByHashtag,
+} = require('../../controllers/feed/postController');
 const { likePost, unlikePost } = require('../../controllers/feed/likeController');
 const { repostPost, undoRepost } = require('../../controllers/feed/repostController');
 
@@ -12,6 +21,7 @@ router.use(authMiddleware);
 // Feed routes
 router.get('/feed', getFeed);
 router.get('/explore', getExplore);
+router.get('/by-hashtag', getPostsByHashtag);
 
 // Post CRUD
 router.post('/', createPost);

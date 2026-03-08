@@ -23,6 +23,11 @@ const {
   generateUniqueUsername,
   ensureUniqueUsername,
 } = require('../../services/profiles/profileValidation');
+const {
+  getPostEntityIncludes,
+  attachHashtagUsageCounts,
+  serializePostEntities,
+} = require('../../services/feed/postEntities');
 
 /** UUID v4 regex — used to detect when a slug is a raw user id. */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -208,7 +213,10 @@ async function getProfilePosts(req, res) {
         user_id: profileUser.id,
         reply_to_id: null,
       },
-      include: [{ model: User, as: 'author', attributes: ['id', 'name', 'email', 'username'] }],
+      include: [
+        { model: User, as: 'author', attributes: ['id', 'name', 'email', 'username'] },
+        ...getPostEntityIncludes(),
+      ],
       distinct: true,
       order: [['created_at', 'DESC']],
       limit,
@@ -234,12 +242,14 @@ async function getProfilePosts(req, res) {
       repostedSet = new Set(reposts.map((item) => item.post_id));
     }
 
+    const serializedPosts = await attachHashtagUsageCounts(posts.map((post) => serializePostEntities({
+      ...post.toJSON(),
+      is_liked_by_me: likedSet.has(post.id),
+      is_reposted_by_me: repostedSet.has(post.id),
+    })));
+
     return res.json({
-      posts: posts.map((post) => ({
-        ...post.toJSON(),
-        is_liked_by_me: likedSet.has(post.id),
-        is_reposted_by_me: repostedSet.has(post.id),
-      })),
+      posts: serializedPosts,
       total: count,
       page,
       limit,

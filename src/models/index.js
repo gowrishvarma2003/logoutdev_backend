@@ -8,6 +8,10 @@ const Post        = require('./feed/Post');
 const PostLike    = require('./feed/PostLike');
 const Repost      = require('./feed/Repost');
 const PostHashtag = require('./feed/PostHashtag');
+const PostMention = require('./feed/PostMention');
+const HashtagCatalog = require('./feed/HashtagCatalog');
+const HashtagRelation = require('./feed/HashtagRelation');
+const NotificationOutbox = require('./feed/NotificationOutbox');
 const Follow      = require('./social/Follow');
 const ProjectSpace = require('./spaces/ProjectSpace');
 const ProjectSpaceStack = require('./spaces/ProjectSpaceStack');
@@ -61,7 +65,13 @@ Repost.belongsTo(User, { foreignKey: 'user_id', as: 'reposter' });
 
 // Post ↔ Hashtags
 Post.hasMany(PostHashtag, { foreignKey: 'post_id', as: 'hashtags' });
-PostHashtag.belongsTo(Post, { foreignKey: 'post_id' });
+PostHashtag.belongsTo(Post, { foreignKey: 'post_id', as: 'post' });
+
+// Post ↔ Mentions
+Post.hasMany(PostMention, { foreignKey: 'post_id', as: 'mentions' });
+PostMention.belongsTo(Post, { foreignKey: 'post_id', as: 'post' });
+PostMention.belongsTo(User, { foreignKey: 'mentioned_user_id', as: 'mentioned_user' });
+User.hasMany(PostMention, { foreignKey: 'mentioned_user_id', as: 'post_mentions' });
 
 // User ↔ Follow
 User.hasMany(Follow, { foreignKey: 'follower_id', as: 'following' });
@@ -386,15 +396,109 @@ async function ensureQuestionOptionColumns() {
   }
 }
 
+async function addIndexSafe(tableName, fields, options = {}) {
+  const queryInterface = sequelize.getQueryInterface();
+  const indexes = await queryInterface.showIndex(tableName);
+  const name = options.name || `${tableName}_${fields.join('_')}`;
+  const exists = indexes.some((index) => index.name === name);
+  if (exists) return;
+
+  await queryInterface.addIndex(tableName, {
+    ...options,
+    fields,
+    name,
+  });
+}
+
+async function ensurePostHashtagColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+
+  try {
+    const table = await queryInterface.describeTable('post_hashtags');
+
+    if (!table.normalized_tag) {
+      await queryInterface.addColumn('post_hashtags', 'normalized_tag', {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+        defaultValue: '',
+      });
+    }
+
+    if (!table.start_index) {
+      await queryInterface.addColumn('post_hashtags', 'start_index', {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      });
+    }
+
+    if (!table.end_index) {
+      await queryInterface.addColumn('post_hashtags', 'end_index', {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      });
+    }
+
+    await addIndexSafe('post_hashtags', ['normalized_tag'], {
+      name: 'post_hashtags_normalized_tag',
+    });
+    await addIndexSafe('post_hashtags', ['post_id', 'normalized_tag'], {
+      name: 'post_hashtags_post_id_normalized_tag',
+      unique: true,
+    });
+  } catch (error) {
+    // Table may not exist on first boot; sequelize.sync() creates it.
+  }
+}
+
+async function ensureNotificationOutboxColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+
+  try {
+    const table = await queryInterface.describeTable('notification_outbox');
+
+    if (!table.payload) {
+      await queryInterface.addColumn('notification_outbox', 'payload', {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: null,
+      });
+    }
+
+    if (!table.created_at) {
+      await queryInterface.addColumn('notification_outbox', 'created_at', {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW,
+      });
+    }
+
+    if (!table.processed_at) {
+      await queryInterface.addColumn('notification_outbox', 'processed_at', {
+        type: DataTypes.DATE,
+        allowNull: true,
+        defaultValue: null,
+      });
+    }
+  } catch (error) {
+    // Table may not exist on first boot; sequelize.sync() creates it.
+  }
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function initModels() {
   await sequelize.authenticate();
+  await ensurePostHashtagColumns();
+  await ensureNotificationOutboxColumns();
   await sequelize.sync();
   await ensureUserProfileColumns();
   await ensureDiscussionReplyColumns();
   await ensureQuestionDiscussionColumns();
   await ensureQuestionOptionColumns();
   await backfillMissingUsernames();
+  const { ensureFeedEntityAggregates } = require('../services/feed/postEntities');
+  await ensureFeedEntityAggregates();
 }
 
 module.exports = {
@@ -407,6 +511,10 @@ module.exports = {
   PostLike,
   Repost,
   PostHashtag,
+  PostMention,
+  HashtagCatalog,
+  HashtagRelation,
+  NotificationOutbox,
   // Social
   Follow,
   // Spaces

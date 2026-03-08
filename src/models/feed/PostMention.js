@@ -1,8 +1,8 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../db/sequelize');
 
-const PostHashtag = sequelize.define(
-  'PostHashtag',
+const PostMention = sequelize.define(
+  'PostMention',
   {
     id: {
       type: DataTypes.UUID,
@@ -13,37 +13,32 @@ const PostHashtag = sequelize.define(
       type: DataTypes.UUID,
       allowNull: false,
     },
-    // Stored lowercase for consistent grouping and trending queries
-    tag: {
-      type: DataTypes.STRING(100),
+    mentioned_user_id: {
+      type: DataTypes.UUID,
       allowNull: false,
     },
-    normalized_tag: {
-      type: DataTypes.STRING(100),
+    username_snapshot: {
+      type: DataTypes.STRING(50),
       allowNull: false,
-      defaultValue: '',
     },
     start_index: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 0,
     },
     end_index: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 0,
     },
   },
   {
-    tableName: 'post_hashtags',
+    tableName: 'post_mentions',
     timestamps: false,
     indexes: [
-      { fields: ['tag'] },
-      { fields: ['normalized_tag'] },
       { fields: ['post_id'] },
-      { unique: true, fields: ['post_id', 'normalized_tag'] },
+      { fields: ['mentioned_user_id'] },
+      { unique: true, fields: ['post_id', 'mentioned_user_id'] },
     ],
   }
 );
 
-module.exports = PostHashtag;
+module.exports = PostMention;
