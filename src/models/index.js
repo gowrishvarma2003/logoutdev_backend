@@ -12,6 +12,7 @@ const PostMention = require('./feed/PostMention');
 const HashtagCatalog = require('./feed/HashtagCatalog');
 const HashtagRelation = require('./feed/HashtagRelation');
 const NotificationOutbox = require('./feed/NotificationOutbox');
+const UserNotification = require('./notifications/UserNotification');
 const Follow      = require('./social/Follow');
 const ProjectSpace = require('./spaces/ProjectSpace');
 const ProjectSpaceStack = require('./spaces/ProjectSpaceStack');
@@ -78,6 +79,12 @@ User.hasMany(Follow, { foreignKey: 'follower_id', as: 'following' });
 User.hasMany(Follow, { foreignKey: 'following_id', as: 'followers' });
 Follow.belongsTo(User, { foreignKey: 'follower_id', as: 'follower' });
 Follow.belongsTo(User, { foreignKey: 'following_id', as: 'followed' });
+
+// User ↔ Notifications
+User.hasMany(UserNotification, { foreignKey: 'recipient_user_id', as: 'received_notifications' });
+User.hasMany(UserNotification, { foreignKey: 'actor_user_id', as: 'sent_notifications' });
+UserNotification.belongsTo(User, { foreignKey: 'recipient_user_id', as: 'recipient' });
+UserNotification.belongsTo(User, { foreignKey: 'actor_user_id', as: 'actor' });
 
 // User ↔ ProjectSpace
 User.hasMany(ProjectSpace, { foreignKey: 'owner_id', as: 'owned_spaces' });
@@ -486,10 +493,85 @@ async function ensureNotificationOutboxColumns() {
   }
 }
 
+async function ensurePostLinkedEntityColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+
+  try {
+    const table = await queryInterface.describeTable('posts');
+
+    if (!table.linked_entity_type) {
+      await queryInterface.addColumn('posts', 'linked_entity_type', {
+        type: DataTypes.STRING(40),
+        allowNull: true,
+      });
+    }
+
+    if (!table.linked_entity_id) {
+      await queryInterface.addColumn('posts', 'linked_entity_id', {
+        type: DataTypes.UUID,
+        allowNull: true,
+      });
+    }
+
+    await addIndexSafe('posts', ['linked_entity_type', 'linked_entity_id'], {
+      name: 'posts_linked_entity_type_linked_entity_id',
+    });
+  } catch (error) {
+    // Table may not exist on first boot; sequelize.sync() creates it.
+  }
+}
+
+async function backfillNotificationInboxFromOutbox() {
+  const rows = await NotificationOutbox.findAll({
+    where: { event_type: 'mention_created' },
+    attributes: [
+      'dedupe_key',
+      'actor_user_id',
+      'recipient_user_id',
+      'post_id',
+      'payload',
+      'created_at',
+    ],
+  });
+
+  for (const row of rows) {
+    // eslint-disable-next-line no-await-in-loop
+    await UserNotification.findOrCreate({
+      where: { dedupe_key: row.dedupe_key },
+      defaults: {
+        recipient_user_id: row.recipient_user_id,
+        actor_user_id: row.actor_user_id,
+        event_type: 'mention_created',
+        category: 'social',
+        priority: 'important',
+        entity_type: 'post',
+        entity_id: row.post_id,
+        entity_snapshot: {
+          type: 'post',
+          id: row.post_id,
+          title: 'Post mention',
+          href: `/post/${row.post_id}`,
+          subtitle: null,
+          visibility: null,
+          tags: [],
+        },
+        secondary_entity_type: null,
+        secondary_entity_id: null,
+        secondary_snapshot: null,
+        action_url: `/post/${row.post_id}`,
+        preview_text: 'mentioned you in a post',
+        group_key: `post:mention:${row.post_id}:${row.recipient_user_id}`,
+        created_at: row.created_at || new Date(),
+      },
+    });
+  }
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function initModels() {
   await sequelize.authenticate();
   await ensurePostHashtagColumns();
+  await ensurePostLinkedEntityColumns();
   await ensureNotificationOutboxColumns();
   await sequelize.sync();
   await ensureUserProfileColumns();
@@ -497,6 +579,7 @@ async function initModels() {
   await ensureQuestionDiscussionColumns();
   await ensureQuestionOptionColumns();
   await backfillMissingUsernames();
+  await backfillNotificationInboxFromOutbox();
   const { ensureFeedEntityAggregates } = require('../services/feed/postEntities');
   await ensureFeedEntityAggregates();
 }
@@ -515,6 +598,7 @@ module.exports = {
   HashtagCatalog,
   HashtagRelation,
   NotificationOutbox,
+  UserNotification,
   // Social
   Follow,
   // Spaces

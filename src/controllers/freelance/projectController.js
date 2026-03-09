@@ -23,6 +23,7 @@ const {
   getProjectListInclude,
 } = require('../../services/freelance/freelanceAccess');
 const { asTrimmedString, isAllowedValue } = require('../../services/spaces/spaceValidation');
+const { getFreelanceGraph } = require('../../services/workGraph/workGraphService');
 
 async function generateUniqueProjectSlug(seed, excludeId, transaction) {
   const base = buildFreelanceSlug(seed);
@@ -202,7 +203,13 @@ async function getProject(req, res) {
     if (!project) return;
 
     const viewerState = await buildProjectViewerState(project, req.user?.userId || null);
-    return res.json({ project: serializeProject(project, viewerState) });
+    const graph = await getFreelanceGraph(project, req.user?.userId || null);
+    return res.json({
+      project: {
+        ...serializeProject(project, viewerState),
+        ...graph,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch freelance project.' });
   }

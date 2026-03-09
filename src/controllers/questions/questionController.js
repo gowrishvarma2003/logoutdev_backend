@@ -20,6 +20,7 @@ const {
   refreshQuestionStats,
   serializeQuestion,
 } = require('../../services/questions/questionQueries');
+const { getQuestionGraph } = require('../../services/workGraph/workGraphService');
 
 async function listQuestions(req, res) {
   try {
@@ -42,7 +43,8 @@ async function getQuestion(req, res) {
 
     const viewerState = await buildViewerState(question, userId);
     const serialized = await serializeQuestion(question, viewerState, userId);
-    return res.json({ question: serialized });
+    const graph = await getQuestionGraph(question, userId);
+    return res.json({ question: { ...serialized, ...graph } });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch question.' });
   }

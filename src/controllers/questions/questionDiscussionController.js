@@ -11,6 +11,10 @@ const {
   getQuestionById,
   refreshQuestionStats,
 } = require('../../services/questions/questionQueries');
+const {
+  buildEntityRef,
+  emitUserNotifications,
+} = require('../../services/notifications/notificationService');
 
 async function listDiscussion(req, res) {
   try {
@@ -47,8 +51,9 @@ async function createDiscussionComment(req, res) {
     if (!viewerState) return;
 
     const parentId = req.params.commentId || null;
+    let parent = null;
     if (parentId) {
-      const parent = await QuestionDiscussionComment.findOne({
+      parent = await QuestionDiscussionComment.findOne({
         where: { id: parentId, question_id: question.id },
       });
       if (!parent) {
@@ -69,6 +74,45 @@ async function createDiscussionComment(req, res) {
     const hydrated = await QuestionDiscussionComment.findByPk(comment.id, {
       include: [{ model: User, as: 'author', attributes: ['id', 'name', 'email', 'username'] }],
     });
+
+    const recipientIds = [...new Set([
+      question.author_id,
+      parent?.author_id,
+    ].filter(Boolean))];
+
+    await emitUserNotifications(
+      recipientIds.map((recipientUserId) => ({
+        recipientUserId,
+        actorUserId: req.user.userId,
+        eventType: 'question_discussion_comment_added',
+        category: 'question',
+        priority: 'important',
+        entityType: 'question',
+        entityId: question.id,
+        entitySnapshot: buildEntityRef({
+          type: 'question',
+          id: question.id,
+          title: question.title,
+          href: `/questions/${question.id}`,
+        }),
+        secondaryEntityType: 'question_comment',
+        secondaryEntityId: comment.id,
+        secondarySnapshot: {
+          type: 'question_comment',
+          id: comment.id,
+          title: 'New discussion reply',
+          href: `/questions/${question.id}`,
+          subtitle: body,
+          visibility: null,
+          tags: [],
+        },
+        actionUrl: `/questions/${question.id}`,
+        previewText: 'commented on a question you follow',
+        groupKey: `question_discussion_comment:${question.id}:${recipientUserId}`,
+        dedupeKey: `question_discussion_comment_added:${comment.id}:${recipientUserId}`,
+        createdAt: comment.created_at,
+      }))
+    );
 
     return res.status(201).json({ comment: hydrated });
   } catch (error) {

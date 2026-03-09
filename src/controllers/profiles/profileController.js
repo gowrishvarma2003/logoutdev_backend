@@ -10,6 +10,14 @@ const {
   ProjectSpaceMember,
   ProjectSpaceDiscussion,
   ProjectSpaceUpdate,
+  Launch,
+  LaunchReview,
+  LaunchTechStack,
+  FreelanceProject,
+  FreelanceProjectSkill,
+  FreelanceProposal,
+  Question,
+  QuestionTag,
   UserProfileSkill,
   UserFeaturedProject,
 } = require('../../models');
@@ -28,6 +36,8 @@ const {
   attachHashtagUsageCounts,
   serializePostEntities,
 } = require('../../services/feed/postEntities');
+const { getUserProfileMetrics } = require('../../services/profiles/profileMetrics');
+const { getProfileGraph, resolveLinkedEntity } = require('../../services/workGraph/workGraphService');
 
 /** UUID v4 regex — used to detect when a slug is a raw user id. */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -79,12 +89,6 @@ function buildPublicProfile(user) {
   };
 }
 
-function getSignalsBand(score) {
-  if (score >= 70) return 'Strong';
-  if (score >= 40) return 'Growing';
-  return 'Early';
-}
-
 async function getProfile(req, res) {
   try {
     const profileUser = await ensureProfileUser(req, res);
@@ -95,25 +99,15 @@ async function getProfile(req, res) {
 
     const [
       skills,
-      followersCount,
-      followingCount,
-      postsCount,
-      projectsCreatedCount,
-      projectsContributedCount,
-      discussionsStartedCount,
-      updatesPostedCount,
+      metrics,
+      related_entities,
     ] = await Promise.all([
       UserProfileSkill.findAll({
         where: { user_id: profileUser.id },
         order: [['rank', 'ASC'], ['created_at', 'ASC']],
       }),
-      Follow.count({ where: { following_id: profileUser.id } }),
-      Follow.count({ where: { follower_id: profileUser.id } }),
-      Post.count({ where: { user_id: profileUser.id, reply_to_id: null } }),
-      ProjectSpace.count({ where: { owner_id: profileUser.id } }),
-      ProjectSpaceMember.count({ where: { user_id: profileUser.id }, distinct: true, col: 'space_id' }),
-      ProjectSpaceDiscussion.count({ where: { author_id: profileUser.id } }),
-      ProjectSpaceUpdate.count({ where: { author_id: profileUser.id } }),
+      getUserProfileMetrics(profileUser.id),
+      getProfileGraph(profileUser.id),
     ]);
 
     const featuredWhere = canViewPrivate
@@ -138,21 +132,22 @@ async function getProfile(req, res) {
     return res.json({
       profile: buildPublicProfile(profileUser),
       is_me: requesterId === profileUser.id,
-      stats: {
-        followers: followersCount,
-        following: followingCount,
-        posts_count: postsCount,
-        projects_created_count: projectsCreatedCount,
-        projects_contributed_count: projectsContributedCount,
-        discussions_started_count: discussionsStartedCount,
-        updates_posted_count: updatesPostedCount,
-      },
+      stats: metrics.stats,
       skills: skills.map((skill) => skill.toJSON()),
       featured_projects: featuredProjects.map((item) => ({
         id: item.id,
         position: item.position,
         space: item.space,
       })),
+      career_summary: {
+        timeline: metrics.timeline,
+        strongest_stacks: metrics.strongest_stacks,
+        fit_clusters: metrics.fit_clusters,
+        open_to_collaborate: metrics.open_to_collaborate,
+      },
+      fit_clusters: metrics.fit_clusters,
+      open_to_collaborate: metrics.open_to_collaborate,
+      related_entities,
     });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch profile.' });
@@ -247,9 +242,19 @@ async function getProfilePosts(req, res) {
       is_liked_by_me: likedSet.has(post.id),
       is_reposted_by_me: repostedSet.has(post.id),
     })));
+    const linkedEntities = await Promise.all(
+      serializedPosts.map((post) => (
+        post.linked_entity_type && post.linked_entity_id
+          ? resolveLinkedEntity(post.linked_entity_type, post.linked_entity_id, requesterId)
+          : null
+      ))
+    );
 
     return res.json({
-      posts: serializedPosts,
+      posts: serializedPosts.map((post, index) => ({
+        ...post,
+        linked_entity: linkedEntities[index],
+      })),
       total: count,
       page,
       limit,
@@ -270,10 +275,10 @@ async function getProfileActivity(req, res) {
 
     const visibilityClause = canViewPrivate ? {} : { visibility: 'public' };
 
-    const [posts, discussions, updates] = await Promise.all([
+    const [posts, discussions, updates, launches, launchReviews, clientProjects, wonProposals] = await Promise.all([
       Post.findAll({
         where: { user_id: profileUser.id, reply_to_id: null },
-        attributes: ['id', 'content', 'created_at'],
+        attributes: ['id', 'content', 'created_at', 'linked_entity_type', 'linked_entity_id'],
         limit: 60,
         order: [['created_at', 'DESC']],
       }),
@@ -303,13 +308,67 @@ async function getProfileActivity(req, res) {
         limit: 60,
         order: [['created_at', 'DESC']],
       }),
+      Launch.findAll({
+        where: { builder_id: profileUser.id, status: 'published' },
+        include: [{
+          model: LaunchTechStack,
+          as: 'tech_stack',
+          attributes: ['technology'],
+          required: false,
+        }],
+        attributes: ['id', 'name', 'tagline', 'published_at', 'created_at', 'review_count', 'upvote_count'],
+        limit: 30,
+        order: [['published_at', 'DESC'], ['created_at', 'DESC']],
+      }),
+      LaunchReview.findAll({
+        include: [{
+          model: Launch,
+          as: 'launch',
+          where: { builder_id: profileUser.id, status: 'published' },
+          attributes: ['id', 'name'],
+          required: true,
+        }],
+        attributes: ['id', 'launch_id', 'created_at'],
+        limit: 30,
+        order: [['created_at', 'DESC']],
+      }),
+      FreelanceProject.findAll({
+        where: { client_id: profileUser.id, status: { [Op.in]: ['awarded', 'completed'] } },
+        attributes: ['id', 'title', 'status', 'linked_space_id', 'updated_at', 'created_at'],
+        limit: 30,
+        order: [['updated_at', 'DESC'], ['created_at', 'DESC']],
+      }),
+      FreelanceProposal.findAll({
+        where: { freelancer_id: profileUser.id, status: 'accepted' },
+        include: [{
+          model: FreelanceProject,
+          as: 'project',
+          attributes: ['id', 'title', 'linked_space_id', 'status'],
+          required: true,
+        }],
+        attributes: ['id', 'project_id', 'updated_at', 'reviewed_at', 'created_at'],
+        limit: 30,
+        order: [['updated_at', 'DESC'], ['created_at', 'DESC']],
+      }),
     ]);
 
+    const postLinkedEntities = await Promise.all(
+      posts.map((post) => (
+        post.linked_entity_type && post.linked_entity_id
+          ? resolveLinkedEntity(post.linked_entity_type, post.linked_entity_id, requesterId)
+          : null
+      ))
+    );
+
     const combined = [
-      ...posts.map((post) => ({
+      ...posts.map((post, index) => ({
         type: 'post',
         created_at: post.created_at,
-        item: post,
+        item: {
+          id: post.id,
+          content: post.content,
+          linked_entity: postLinkedEntities[index],
+        },
       })),
       ...discussions.map((discussion) => ({
         type: 'discussion',
@@ -320,6 +379,47 @@ async function getProfileActivity(req, res) {
         type: 'update',
         created_at: update.created_at,
         item: update,
+      })),
+      ...launches.map((launch) => ({
+        type: 'launch',
+        created_at: launch.published_at || launch.created_at,
+        item: {
+          id: launch.id,
+          title: launch.name,
+          subtitle: launch.tagline,
+          href: `/launches/${launch.id}`,
+          stats: `${launch.upvote_count} upvotes • ${launch.review_count} reviews`,
+        },
+      })),
+      ...launchReviews.map((review) => ({
+        type: 'launch_review',
+        created_at: review.created_at,
+        item: {
+          id: review.id,
+          title: `Received feedback on ${review.launch?.name || 'a launch'}`,
+          href: review.launch ? `/launches/${review.launch.id}#reviews` : null,
+        },
+      })),
+      ...clientProjects.map((project) => ({
+        type: 'freelance_project',
+        created_at: project.updated_at || project.created_at,
+        item: {
+          id: project.id,
+          title: `${project.status === 'completed' ? 'Completed' : 'Awarded'} ${project.title}`,
+          href: `/freelance/${project.id}`,
+          status: project.status,
+          linked_space_id: project.linked_space_id,
+        },
+      })),
+      ...wonProposals.map((proposal) => ({
+        type: 'freelance_win',
+        created_at: proposal.reviewed_at || proposal.updated_at || proposal.created_at,
+        item: {
+          id: proposal.id,
+          title: `Won ${proposal.project?.title || 'a freelance project'}`,
+          href: proposal.project ? `/freelance/${proposal.project.id}` : null,
+          linked_space_id: proposal.project?.linked_space_id || null,
+        },
       })),
     ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
@@ -337,41 +437,79 @@ async function getProfileSignals(req, res) {
     const profileUser = await ensureProfileUser(req, res);
     if (!profileUser) return;
 
-    const periodStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
-    const [activeProjects, updatesCount, discussionsCount, postsCount] = await Promise.all([
-      ProjectSpaceMember.count({
-        where: { user_id: profileUser.id },
-        distinct: true,
-        col: 'space_id',
-      }),
-      ProjectSpaceUpdate.count({ where: { author_id: profileUser.id, created_at: { [Op.gte]: periodStart } } }),
-      ProjectSpaceDiscussion.count({ where: { author_id: profileUser.id, created_at: { [Op.gte]: periodStart } } }),
-      Post.count({ where: { user_id: profileUser.id, created_at: { [Op.gte]: periodStart } } }),
-    ]);
-
-    const projectScore = Math.min(activeProjects * 12, 30);
-    const updateScore = Math.min(updatesCount * 8, 25);
-    const discussionScore = Math.min(discussionsCount * 8, 25);
-    const feedScore = Math.min(postsCount * 4, 20);
-
-    const score = projectScore + updateScore + discussionScore + feedScore;
-    const band = getSignalsBand(score);
+    const metrics = await getUserProfileMetrics(profileUser.id);
 
     return res.json({
-      signals: {
-        score,
-        band,
-        factors: {
-          project_participation: projectScore,
-          update_consistency: updateScore,
-          discussion_engagement: discussionScore,
-          feed_consistency: feedScore,
-        },
-      },
+      signals: metrics.signals,
     });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch profile signals.' });
+  }
+}
+
+async function getProfileLaunches(req, res) {
+  try {
+    const profileUser = await ensureProfileUser(req, res);
+    if (!profileUser) return;
+
+    const launches = await Launch.findAll({
+      where: { builder_id: profileUser.id, status: 'published' },
+      include: [
+        {
+          model: LaunchTechStack,
+          as: 'tech_stack',
+          attributes: ['id', 'technology', 'rank', 'created_at'],
+          required: false,
+        },
+        {
+          model: ProjectSpace,
+          as: 'linked_space',
+          attributes: ['id', 'name', 'slug', 'visibility', 'status'],
+          required: false,
+        },
+      ],
+      order: [['published_at', 'DESC'], ['created_at', 'DESC']],
+    });
+
+    return res.json({ launches });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to fetch profile launches.' });
+  }
+}
+
+async function getProfileFreelance(req, res) {
+  try {
+    const profileUser = await ensureProfileUser(req, res);
+    if (!profileUser) return;
+
+    const [client_projects, wins] = await Promise.all([
+      FreelanceProject.findAll({
+        where: { client_id: profileUser.id },
+        include: [
+          { model: FreelanceProjectSkill, as: 'skills', attributes: ['id', 'skill', 'rank'], required: false },
+          { model: ProjectSpace, as: 'linked_space', attributes: ['id', 'name', 'slug', 'status', 'visibility'], required: false },
+        ],
+        order: [['updated_at', 'DESC'], ['created_at', 'DESC']],
+      }),
+      FreelanceProposal.findAll({
+        where: { freelancer_id: profileUser.id, status: 'accepted' },
+        include: [{
+          model: FreelanceProject,
+          as: 'project',
+          include: [
+            { model: FreelanceProjectSkill, as: 'skills', attributes: ['id', 'skill', 'rank'], required: false },
+            { model: ProjectSpace, as: 'linked_space', attributes: ['id', 'name', 'slug', 'status', 'visibility'], required: false },
+            { model: User, as: 'client', attributes: ['id', 'name', 'username', 'headline'], required: false },
+          ],
+          required: true,
+        }],
+        order: [['updated_at', 'DESC'], ['created_at', 'DESC']],
+      }),
+    ]);
+
+    return res.json({ client_projects, wins });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to fetch profile freelance.' });
   }
 }
 
@@ -577,6 +715,8 @@ module.exports = {
   getProfilePosts,
   getProfileActivity,
   getProfileSignals,
+  getProfileLaunches,
+  getProfileFreelance,
   patchMyProfile,
   replaceMySkills,
   replaceMyFeaturedProjects,

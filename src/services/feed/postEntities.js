@@ -13,6 +13,10 @@ const {
   normalizeUsername,
   isValidUsername,
 } = require('../profiles/profileValidation');
+const {
+  buildEntityRef,
+  emitUserNotification,
+} = require('../notifications/notificationService');
 
 const RECENT_WINDOW_DAYS = 30;
 const MAX_HASHTAGS = 8;
@@ -234,6 +238,27 @@ async function upsertPostEntities({
       },
       transaction,
     });
+
+    await emitUserNotification({
+      recipientUserId: mention.mentioned_user_id,
+      actorUserId: authorId,
+      eventType: 'mention_created',
+      category: 'social',
+      priority: 'important',
+      entityType: 'post',
+      entityId: post.id,
+      entitySnapshot: buildEntityRef({
+        type: 'post',
+        id: post.id,
+        title: content,
+        href: `/post/${post.id}`,
+      }),
+      actionUrl: `/post/${post.id}`,
+      previewText: 'mentioned you in a post',
+      groupKey: `post:mention:${post.id}:${mention.mentioned_user_id}`,
+      dedupeKey: `mention_created:${post.id}:${mention.mentioned_user_id}`,
+      createdAt: post.created_at,
+    }, { transaction });
   }
 
   return { hashtags: parsed.hashtags, mentions: resolvedMentions };

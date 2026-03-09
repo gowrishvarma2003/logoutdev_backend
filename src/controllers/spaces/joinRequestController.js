@@ -18,6 +18,11 @@ const {
   isAllowedValue,
 } = require('../../services/spaces/spaceValidation');
 const { parsePagination } = require('../../services/spaces/pagination');
+const {
+  buildEntityRef,
+  emitUserNotification,
+  emitUserNotifications,
+} = require('../../services/notifications/notificationService');
 
 async function createJoinRequest(req, res) {
   try {
@@ -71,6 +76,53 @@ async function createJoinRequest(req, res) {
       proof_links: proofLinks,
       status: 'pending',
     });
+
+    const reviewerMemberships = await ProjectSpaceMember.findAll({
+      where: {
+        space_id: spaceId,
+        role: { [Op.in]: ['owner', 'maintainer'] },
+      },
+      attributes: ['user_id'],
+    });
+
+    const recipientIds = [...new Set([
+      space.owner_id,
+      ...reviewerMemberships.map((member) => member.user_id),
+    ])];
+
+    await emitUserNotifications(
+      recipientIds.map((recipientUserId) => ({
+        recipientUserId,
+        actorUserId: userId,
+        eventType: 'join_request_submitted',
+        category: 'space',
+        priority: 'action',
+        entityType: 'space',
+        entityId: spaceId,
+        entitySnapshot: buildEntityRef({
+          type: 'space',
+          id: spaceId,
+          title: space.name,
+          href: `/spaces/${spaceId}`,
+          visibility: space.visibility,
+        }),
+        secondaryEntityType: 'join_request',
+        secondaryEntityId: joinRequest.id,
+        secondarySnapshot: {
+          type: 'join_request',
+          id: joinRequest.id,
+          title: 'Join request pending',
+          href: `/spaces/${spaceId}/manage`,
+          subtitle: message,
+          visibility: null,
+          tags: skills,
+        },
+        actionUrl: `/spaces/${spaceId}/manage`,
+        previewText: 'sent a join request to your space',
+        dedupeKey: `join_request_submitted:${joinRequest.id}:${recipientUserId}`,
+        createdAt: joinRequest.created_at,
+      }))
+    );
 
     return res.status(201).json({ joinRequest });
   } catch (error) {
@@ -170,6 +222,42 @@ async function reviewJoinRequest(req, res) {
           transaction,
         });
       }
+    });
+
+    await emitUserNotification({
+      recipientUserId: joinRequest.user_id,
+      actorUserId: reviewerId,
+      eventType: 'join_request_reviewed',
+      category: 'space',
+      priority: nextStatus === 'accepted' || nextStatus === 'need-info' ? 'action' : 'important',
+      entityType: 'space',
+      entityId: spaceId,
+      entitySnapshot: buildEntityRef({
+        type: 'space',
+        id: spaceId,
+        title: space.name,
+        href: `/spaces/${spaceId}`,
+        visibility: space.visibility,
+      }),
+      secondaryEntityType: 'join_request',
+      secondaryEntityId: joinRequest.id,
+      secondarySnapshot: {
+        type: 'join_request',
+        id: joinRequest.id,
+        title: `Join request ${nextStatus}`,
+        href: nextStatus === 'accepted' ? `/spaces/${spaceId}` : `/spaces/${spaceId}/join`,
+        subtitle: null,
+        visibility: null,
+        tags: [],
+      },
+      actionUrl: nextStatus === 'accepted' ? `/spaces/${spaceId}` : `/spaces/${spaceId}/join`,
+      previewText:
+        nextStatus === 'accepted'
+          ? 'accepted your join request'
+          : nextStatus === 'rejected'
+            ? 'rejected your join request'
+            : 'requested more context on your join request',
+      dedupeKey: `join_request_reviewed:${joinRequest.id}:${nextStatus}:${joinRequest.user_id}`,
     });
 
     return res.json({ joinRequest });

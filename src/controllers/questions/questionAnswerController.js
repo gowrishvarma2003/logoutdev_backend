@@ -16,6 +16,10 @@ const {
   getQuestionById,
   refreshQuestionStats,
 } = require('../../services/questions/questionQueries');
+const {
+  buildEntityRef,
+  emitUserNotification,
+} = require('../../services/notifications/notificationService');
 
 async function putMyAnswer(req, res) {
   try {
@@ -53,6 +57,39 @@ async function putMyAnswer(req, res) {
     const hydrated = await QuestionAnswer.findByPk(answer.id, {
       include: [{ model: User, as: 'author', attributes: ['id', 'name', 'email', 'username'] }],
     });
+
+    if (created) {
+      await emitUserNotification({
+        recipientUserId: question.author_id,
+        actorUserId: userId,
+        eventType: 'question_answer_added',
+        category: 'question',
+        priority: 'important',
+        entityType: 'question',
+        entityId: question.id,
+        entitySnapshot: buildEntityRef({
+          type: 'question',
+          id: question.id,
+          title: question.title,
+          href: `/questions/${question.id}`,
+        }),
+        secondaryEntityType: 'question_answer',
+        secondaryEntityId: answer.id,
+        secondarySnapshot: {
+          type: 'question_answer',
+          id: answer.id,
+          title: 'New answer',
+          href: `/questions/${question.id}`,
+          subtitle: body,
+          visibility: null,
+          tags: [],
+        },
+        actionUrl: `/questions/${question.id}`,
+        previewText: 'answered your question',
+        dedupeKey: `question_answer_added:${answer.id}:${question.author_id}`,
+        createdAt: answer.created_at,
+      });
+    }
 
     return res.json({ answer: hydrated });
   } catch (error) {
@@ -235,6 +272,36 @@ async function acceptAnswer(req, res) {
 
     const hydrated = await QuestionAnswer.findByPk(answer.id, {
       include: [{ model: User, as: 'author', attributes: ['id', 'name', 'email', 'username'] }],
+    });
+
+    await emitUserNotification({
+      recipientUserId: answer.author_id,
+      actorUserId: req.user.userId,
+      eventType: 'question_answer_accepted',
+      category: 'question',
+      priority: 'action',
+      entityType: 'question',
+      entityId: question.id,
+      entitySnapshot: buildEntityRef({
+        type: 'question',
+        id: question.id,
+        title: question.title,
+        href: `/questions/${question.id}`,
+      }),
+      secondaryEntityType: 'question_answer',
+      secondaryEntityId: answer.id,
+      secondarySnapshot: {
+        type: 'question_answer',
+        id: answer.id,
+        title: 'Accepted answer',
+        href: `/questions/${question.id}`,
+        subtitle: null,
+        visibility: null,
+        tags: [],
+      },
+      actionUrl: `/questions/${question.id}`,
+      previewText: 'accepted your answer',
+      dedupeKey: `question_answer_accepted:${answer.id}:${answer.author_id}`,
     });
 
     return res.json({ answer: hydrated });

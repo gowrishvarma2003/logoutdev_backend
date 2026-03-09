@@ -7,6 +7,11 @@ const {
   validateFeedbackCommentInput,
 } = require('../../services/launches/launchValidation');
 const { getFeedbackInclude, refreshLaunchCounts } = require('../../services/launches/launchQueries');
+const {
+  buildEntityRef,
+  emitUserNotification,
+  emitUserNotifications,
+} = require('../../services/notifications/notificationService');
 
 async function listLaunchFeedback(req, res) {
   try {
@@ -65,6 +70,38 @@ async function createLaunchFeedback(req, res) {
 
     await refreshLaunchCounts(launch.id);
     const hydrated = await LaunchFeedbackItem.findByPk(feedback.id, { include: getFeedbackInclude() });
+
+    await emitUserNotification({
+      recipientUserId: launch.builder_id,
+      actorUserId: req.user.userId,
+      eventType: 'launch_feedback_added',
+      category: 'launch',
+      priority: 'important',
+      entityType: 'launch',
+      entityId: launch.id,
+      entitySnapshot: buildEntityRef({
+        type: 'launch',
+        id: launch.id,
+        title: launch.name,
+        href: `/launches/${launch.id}`,
+      }),
+      secondaryEntityType: 'launch_feedback',
+      secondaryEntityId: feedback.id,
+      secondarySnapshot: {
+        type: 'launch_feedback',
+        id: feedback.id,
+        title: feedback.title,
+        href: `/launches/${launch.id}#feedback`,
+        subtitle: feedback.body,
+        visibility: null,
+        tags: [],
+      },
+      actionUrl: `/launches/${launch.id}#feedback`,
+      previewText: 'left launch feedback',
+      dedupeKey: `launch_feedback_added:${feedback.id}:${launch.builder_id}`,
+      createdAt: feedback.created_at,
+    });
+
     return res.status(201).json({ feedback: hydrated });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to create launch feedback.' });
@@ -166,6 +203,43 @@ async function createLaunchFeedbackComment(req, res) {
     const hydrated = await LaunchFeedbackComment.findByPk(comment.id, {
       include: [{ association: 'author', attributes: ['id', 'name', 'username', 'headline'], required: false }],
     });
+
+    const recipientIds = [...new Set([feedback.author_id, launch.builder_id].filter(Boolean))];
+
+    await emitUserNotifications(
+      recipientIds.map((recipientUserId) => ({
+        recipientUserId,
+        actorUserId: req.user.userId,
+        eventType: 'launch_feedback_commented',
+        category: 'launch',
+        priority: 'important',
+        entityType: 'launch',
+        entityId: launch.id,
+        entitySnapshot: buildEntityRef({
+          type: 'launch',
+          id: launch.id,
+          title: launch.name,
+          href: `/launches/${launch.id}`,
+        }),
+        secondaryEntityType: 'launch_feedback',
+        secondaryEntityId: feedback.id,
+        secondarySnapshot: {
+          type: 'launch_feedback',
+          id: feedback.id,
+          title: feedback.title,
+          href: `/launches/${launch.id}#feedback`,
+          subtitle: validation.data.body,
+          visibility: null,
+          tags: [],
+        },
+        actionUrl: `/launches/${launch.id}#feedback`,
+        previewText: 'commented on launch feedback',
+        groupKey: `launch_feedback_comment:${feedback.id}:${recipientUserId}`,
+        dedupeKey: `launch_feedback_commented:${comment.id}:${recipientUserId}`,
+        createdAt: comment.created_at,
+      }))
+    );
+
     return res.status(201).json({ comment: hydrated });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to create feedback comment.' });

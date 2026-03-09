@@ -1,7 +1,11 @@
 const { Op } = require('sequelize');
-const { Launch, ProjectSpaceJoinRequest, ProjectSpaceMember } = require('../../models');
+const { Launch, ProjectSpace, ProjectSpaceJoinRequest, ProjectSpaceMember } = require('../../models');
 const { getLaunchOr404, isLaunchOwner } = require('../../services/launches/launchAccess');
 const { validateCollaborationRequestInput } = require('../../services/launches/launchValidation');
+const {
+  buildEntityRef,
+  emitUserNotifications,
+} = require('../../services/notifications/notificationService');
 
 async function createLaunchCollaborationRequest(req, res) {
   try {
@@ -49,6 +53,57 @@ async function createLaunchCollaborationRequest(req, res) {
       ...validation.data,
       status: 'pending',
     });
+
+    const space = await ProjectSpace.findByPk(launch.linked_space_id, {
+      attributes: ['id', 'name', 'visibility', 'owner_id'],
+    });
+
+    const reviewerMemberships = await ProjectSpaceMember.findAll({
+      where: {
+        space_id: launch.linked_space_id,
+        role: { [Op.in]: ['owner', 'maintainer'] },
+      },
+      attributes: ['user_id'],
+    });
+
+    const recipientIds = [...new Set([
+      space?.owner_id,
+      ...reviewerMemberships.map((member) => member.user_id),
+    ].filter(Boolean))];
+
+    await emitUserNotifications(
+      recipientIds.map((recipientUserId) => ({
+        recipientUserId,
+        actorUserId: req.user.userId,
+        eventType: 'join_request_submitted',
+        category: 'space',
+        priority: 'action',
+        entityType: 'space',
+        entityId: launch.linked_space_id,
+        entitySnapshot: buildEntityRef({
+          type: 'space',
+          id: launch.linked_space_id,
+          title: space?.name || launch.name,
+          href: `/spaces/${launch.linked_space_id}`,
+          visibility: space?.visibility || null,
+        }),
+        secondaryEntityType: 'join_request',
+        secondaryEntityId: joinRequest.id,
+        secondarySnapshot: {
+          type: 'join_request',
+          id: joinRequest.id,
+          title: 'Join request pending',
+          href: `/spaces/${launch.linked_space_id}/manage`,
+          subtitle: validation.data.message,
+          visibility: null,
+          tags: validation.data.skills,
+        },
+        actionUrl: `/spaces/${launch.linked_space_id}/manage`,
+        previewText: 'sent a join request to your space',
+        dedupeKey: `join_request_submitted:${joinRequest.id}:${recipientUserId}`,
+        createdAt: joinRequest.created_at,
+      }))
+    );
 
     return res.status(201).json({ joinRequest });
   } catch (error) {

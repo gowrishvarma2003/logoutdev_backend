@@ -4,6 +4,10 @@ const {
 } = require('../../models');
 const { asTrimmedString } = require('../../services/spaces/spaceValidation');
 const { ensureRepoAdmin, ensureRepoMemberCandidate } = require('../../services/spaces/repoAccess');
+const {
+  buildEntityRef,
+  emitUserNotification,
+} = require('../../services/notifications/notificationService');
 
 async function listRepoMembers(req, res) {
   try {
@@ -46,6 +50,7 @@ async function upsertRepoMember(req, res) {
       },
     });
 
+    const previousRole = created ? null : member.role;
     if (!created) {
       await member.update({ role, granted_by: req.user.userId });
     }
@@ -53,6 +58,27 @@ async function upsertRepoMember(req, res) {
     const refreshed = await ProjectSpaceRepoMember.findByPk(member.id, {
       include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email', 'username'] }],
     });
+
+    if (created || previousRole !== role) {
+      await emitUserNotification({
+        recipientUserId: req.params.userId,
+        actorUserId: req.user.userId,
+        eventType: 'repo_access_granted',
+        category: 'repo',
+        priority: 'action',
+        entityType: 'repo',
+        entityId: result.repo.id,
+        entitySnapshot: buildEntityRef({
+          type: 'repo',
+          id: result.repo.id,
+          title: result.repo.name,
+          href: `/spaces/${req.params.spaceId}/repos/${result.repo.id}`,
+        }),
+        actionUrl: `/spaces/${req.params.spaceId}/repos/${result.repo.id}`,
+        previewText: `granted you ${role} access to a repository`,
+        dedupeKey: `repo_access_granted:${result.repo.id}:${req.params.userId}:${role}`,
+      });
+    }
 
     return res.json({ member: refreshed });
   } catch (error) {

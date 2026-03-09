@@ -1,22 +1,41 @@
 require('dotenv').config();
 
 const app = require('./src/app');
+const { closeLogger, getLogRootPath, logger, registerProcessLogging } = require('./src/logging/logger');
 const { initModels } = require('./src/models');
 const { initializeUserStore } = require('./src/services/auth/userStore');
 
 const port = process.env.PORT || 3000;
 
+registerProcessLogging();
+
 async function startServer() {
   try {
     await initModels();
-    console.log('Database connected successfully.');
+    logger.info('Database connected successfully.');
     await initializeUserStore();
 
-    app.listen(port, () => {
-      console.log(`Server is running on port ${port}`);
+    const server = app.listen(port, () => {
+      logger.info('Server started successfully.', {
+        port,
+        logRootPath: getLogRootPath(),
+      });
     });
+
+    const shutdown = (signal) => {
+      logger.info('Shutdown signal received.', { signal });
+      server.close(() => {
+        logger.info('HTTP server closed.', { signal });
+        closeLogger();
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
   } catch (error) {
-    console.error('Failed to start server:', error.message);
+    logger.error('Failed to start server.', { error });
+    closeLogger();
     process.exit(1);
   }
 }

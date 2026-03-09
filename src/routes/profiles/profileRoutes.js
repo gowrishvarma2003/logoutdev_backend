@@ -12,6 +12,8 @@ const {
   getProfilePosts,
   getProfileActivity,
   getProfileSignals,
+  getProfileLaunches,
+  getProfileFreelance,
   patchMyProfile,
   replaceMySkills,
   replaceMyFeaturedProjects,
@@ -26,6 +28,8 @@ router.get('/:username/projects', getProfileProjects);
 router.get('/:username/posts', getProfilePosts);
 router.get('/:username/activity', getProfileActivity);
 router.get('/:username/signals', getProfileSignals);
+router.get('/:username/launches', getProfileLaunches);
+router.get('/:username/freelance', getProfileFreelance);
 
 // Owner updates
 router.use(authMiddleware);

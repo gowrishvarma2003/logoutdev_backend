@@ -24,6 +24,7 @@ const {
   replaceLaunchScreenshots,
   replaceLaunchTechStack,
 } = require('../../services/launches/launchQueries');
+const { getLaunchGraph } = require('../../services/workGraph/workGraphService');
 
 function serializeLaunch(launch, { viewerState = null } = {}) {
   const json = launch.toJSON();
@@ -120,7 +121,13 @@ async function getLaunch(req, res) {
     }
 
     const viewerState = await buildLaunchViewerState(launch, userId);
-    return res.json({ launch: serializeLaunch(launch, { viewerState }) });
+    const graph = await getLaunchGraph(launch, userId);
+    return res.json({
+      launch: {
+        ...serializeLaunch(launch, { viewerState }),
+        ...graph,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch launch.' });
   }

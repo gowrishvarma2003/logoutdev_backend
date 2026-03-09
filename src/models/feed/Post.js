@@ -37,6 +37,14 @@ const Post = sequelize.define(
       type: DataTypes.UUID,
       allowNull: true,
     },
+    linked_entity_type: {
+      type: DataTypes.STRING(40),
+      allowNull: true,
+    },
+    linked_entity_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
     like_count: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -71,6 +79,7 @@ const Post = sequelize.define(
       { fields: ['created_at'] },
       { fields: ['reply_to_id'] },
       { fields: ['original_post_id'] },
+      { fields: ['linked_entity_type', 'linked_entity_id'] },
     ],
   }
 );

@@ -19,6 +19,7 @@ const {
   slugify,
   isAllowedValue,
 } = require('../../services/spaces/spaceValidation');
+const { getSpaceGraph } = require('../../services/workGraph/workGraphService');
 
 async function createSpace(req, res) {
   try {
@@ -179,11 +180,11 @@ async function getSpace(req, res) {
 
     const space = await ProjectSpace.findByPk(req.params.spaceId, {
       include: [
-        { model: User, as: 'owner', attributes: ['id', 'name', 'email'] },
+        { model: User, as: 'owner', attributes: ['id', 'name', 'email', 'username', 'headline'] },
         {
           model: ProjectSpaceMember,
           as: 'members',
-          include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email'] }],
+          include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email', 'username', 'headline'] }],
         },
         { model: ProjectSpaceStack, as: 'stack', attributes: ['id', 'category', 'technology', 'maturity'] },
         {
@@ -199,7 +200,13 @@ async function getSpace(req, res) {
       return res.status(404).json({ error: 'Project space not found.' });
     }
 
-    return res.json({ space });
+    const graph = await getSpaceGraph(space, requesterId);
+    return res.json({
+      space: {
+        ...space.toJSON(),
+        ...graph,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch project space.' });
   }

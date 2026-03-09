@@ -3,6 +3,10 @@ const { parsePagination } = require('../../services/spaces/pagination');
 const { getLaunchOr404, isLaunchOwner } = require('../../services/launches/launchAccess');
 const { validateLaunchReviewInput } = require('../../services/launches/launchValidation');
 const { getReviewInclude, refreshLaunchCounts } = require('../../services/launches/launchQueries');
+const {
+  buildEntityRef,
+  emitUserNotification,
+} = require('../../services/notifications/notificationService');
 
 async function listLaunchReviews(req, res) {
   try {
@@ -75,6 +79,40 @@ async function upsertMyReview(req, res) {
     await transaction.commit();
 
     const hydrated = await LaunchReview.findByPk(review.id, { include: getReviewInclude() });
+
+    if (!existing) {
+      await emitUserNotification({
+        recipientUserId: launch.builder_id,
+        actorUserId: req.user.userId,
+        eventType: 'launch_review_added',
+        category: 'launch',
+        priority: 'important',
+        entityType: 'launch',
+        entityId: launch.id,
+        entitySnapshot: buildEntityRef({
+          type: 'launch',
+          id: launch.id,
+          title: launch.name,
+          href: `/launches/${launch.id}`,
+        }),
+        secondaryEntityType: 'launch_review',
+        secondaryEntityId: review.id,
+        secondarySnapshot: {
+          type: 'launch_review',
+          id: review.id,
+          title: payload.headline,
+          href: `/launches/${launch.id}#reviews`,
+          subtitle: payload.body,
+          visibility: null,
+          tags: [],
+        },
+        actionUrl: `/launches/${launch.id}#reviews`,
+        previewText: 'reviewed your launch',
+        dedupeKey: `launch_review_added:${review.id}:${launch.builder_id}`,
+        createdAt: review.created_at,
+      });
+    }
+
     return res.json({ review: hydrated });
   } catch (error) {
     await transaction.rollback();

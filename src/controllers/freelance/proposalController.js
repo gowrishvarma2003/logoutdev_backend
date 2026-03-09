@@ -22,9 +22,19 @@ const {
 } = require('../../services/freelance/freelanceAccess');
 const { createLinkedSpaceForAward } = require('../../services/freelance/freelanceSpaceLink');
 const { asTrimmedString, isAllowedValue } = require('../../services/spaces/spaceValidation');
+const {
+  buildEntityRef,
+  emitUserNotification,
+} = require('../../services/notifications/notificationService');
 
 function serializeProposal(proposal) {
   return proposal.toJSON();
+}
+
+function summarizeCoverNote(value) {
+  const normalized = typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  if (!normalized) return null;
+  return normalized.length > 120 ? `${normalized.slice(0, 119)}…` : normalized;
 }
 
 async function listProjectProposals(req, res) {
@@ -102,6 +112,37 @@ async function createProposal(req, res) {
 
     const hydrated = await FreelanceProposal.findByPk(proposal.id, {
       include: getProposalInclude(),
+    });
+
+    await emitUserNotification({
+      recipientUserId: project.client_id,
+      actorUserId: req.user.userId,
+      eventType: 'proposal_submitted',
+      category: 'freelance',
+      priority: 'action',
+      entityType: 'freelance_project',
+      entityId: project.id,
+      entitySnapshot: buildEntityRef({
+        type: 'freelance_project',
+        id: project.id,
+        title: project.title,
+        href: `/freelance/${project.id}`,
+      }),
+      secondaryEntityType: 'proposal',
+      secondaryEntityId: proposal.id,
+      secondarySnapshot: {
+        type: 'proposal',
+        id: proposal.id,
+        title: 'Proposal submitted',
+        href: `/freelance/${project.id}/proposals`,
+        subtitle: summarizeCoverNote(payload.cover_note),
+        visibility: null,
+        tags: [],
+      },
+      actionUrl: `/freelance/${project.id}/proposals`,
+      previewText: 'submitted a proposal to your project',
+      dedupeKey: `proposal_submitted:${proposal.id}:${project.client_id}`,
+      createdAt: proposal.created_at,
     });
 
     return res.status(201).json({ proposal: serializeProposal(hydrated) });
@@ -275,6 +316,42 @@ async function reviewProposal(req, res) {
       include: getProposalInclude(),
     });
     const updatedProject = await FreelanceProject.findByPk(project.id);
+
+    if (action === 'shortlist' || action === 'accept') {
+      await emitUserNotification({
+        recipientUserId: proposal.freelancer_id,
+        actorUserId: req.user.userId,
+        eventType: action === 'accept' ? 'proposal_accepted' : 'proposal_shortlisted',
+        category: 'freelance',
+        priority: action === 'accept' ? 'action' : 'important',
+        entityType: 'freelance_project',
+        entityId: project.id,
+        entitySnapshot: buildEntityRef({
+          type: 'freelance_project',
+          id: project.id,
+          title: project.title,
+          href: `/freelance/${project.id}`,
+        }),
+        secondaryEntityType: 'proposal',
+        secondaryEntityId: proposal.id,
+        secondarySnapshot: {
+          type: 'proposal',
+          id: proposal.id,
+          title: action === 'accept' ? 'Proposal accepted' : 'Proposal shortlisted',
+          href: '/freelance/my-proposals',
+          subtitle: null,
+          visibility: null,
+          tags: [],
+        },
+        actionUrl: action === 'accept' && updatedProject?.linked_space_id
+          ? `/spaces/${updatedProject.linked_space_id}`
+          : '/freelance/my-proposals',
+        previewText: action === 'accept'
+          ? 'accepted your proposal'
+          : 'shortlisted your proposal',
+        dedupeKey: `${action === 'accept' ? 'proposal_accepted' : 'proposal_shortlisted'}:${proposal.id}:${proposal.freelancer_id}`,
+      });
+    }
 
     return res.json({
       proposal: serializeProposal(hydrated),

@@ -13,6 +13,10 @@ const {
   isAllowedValue,
 } = require('../../services/spaces/spaceValidation');
 const { parsePagination } = require('../../services/spaces/pagination');
+const {
+  buildEntityRef,
+  emitUserNotifications,
+} = require('../../services/notifications/notificationService');
 
 async function createDiscussion(req, res) {
   try {
@@ -157,6 +161,46 @@ async function addDiscussionReply(req, res) {
       parent_reply_id: parentReply ? parentReply.id : null,
       body,
     });
+
+    const recipientIds = [...new Set([
+      thread.author_id,
+      parentReply?.author_id,
+    ].filter(Boolean))];
+
+    await emitUserNotifications(
+      recipientIds.map((recipientUserId) => ({
+        recipientUserId,
+        actorUserId: userId,
+        eventType: 'space_discussion_reply',
+        category: 'space',
+        priority: 'important',
+        entityType: 'space',
+        entityId: spaceId,
+        entitySnapshot: buildEntityRef({
+          type: 'space',
+          id: spaceId,
+          title: space.name,
+          href: `/spaces/${spaceId}`,
+          visibility: space.visibility,
+        }),
+        secondaryEntityType: 'space_discussion',
+        secondaryEntityId: thread.id,
+        secondarySnapshot: {
+          type: 'space_discussion',
+          id: thread.id,
+          title: thread.title,
+          href: `/spaces/${spaceId}/discussions/${threadId}`,
+          subtitle: body,
+          visibility: null,
+          tags: [],
+        },
+        actionUrl: `/spaces/${spaceId}/discussions/${threadId}`,
+        previewText: 'replied in a discussion you follow',
+        groupKey: `space_discussion_reply:${thread.id}:${recipientUserId}`,
+        dedupeKey: `space_discussion_reply:${reply.id}:${recipientUserId}`,
+        createdAt: reply.created_at,
+      }))
+    );
 
     return res.status(201).json({ reply });
   } catch (error) {

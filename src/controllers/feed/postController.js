@@ -16,6 +16,14 @@ const {
   attachHashtagUsageCounts,
   serializePostEntities,
 } = require('../../services/feed/postEntities');
+const {
+  buildEntityRef,
+  emitUserNotification,
+} = require('../../services/notifications/notificationService');
+const {
+  LINKED_ENTITY_TYPES,
+  resolveLinkedEntity,
+} = require('../../services/workGraph/workGraphService');
 
 const MAX_CONTENT_LENGTH = 500;
 const AUTHOR_ATTRIBUTES = ['id', 'name', 'email', 'username'];
@@ -58,7 +66,19 @@ async function enrichPosts(posts, userId) {
     is_reposted_by_me: repostedSet.has(post.id),
   }));
 
-  return attachHashtagUsageCounts(serialized);
+  const enrichedWithHashtags = await attachHashtagUsageCounts(serialized);
+  const linkedEntities = await Promise.all(
+    enrichedWithHashtags.map((post) => (
+      post.linked_entity_type && post.linked_entity_id
+        ? resolveLinkedEntity(post.linked_entity_type, post.linked_entity_id, userId)
+        : null
+    ))
+  );
+
+  return enrichedWithHashtags.map((post, index) => ({
+    ...post,
+    linked_entity: linkedEntities[index],
+  }));
 }
 
 async function createPost(req, res) {
@@ -67,6 +87,12 @@ async function createPost(req, res) {
   try {
     const { content } = req.body;
     const userId = req.user.userId;
+    const linkedEntityType = typeof req.body.linked_entity_type === 'string'
+      ? req.body.linked_entity_type.trim()
+      : null;
+    const linkedEntityId = typeof req.body.linked_entity_id === 'string'
+      ? req.body.linked_entity_id.trim()
+      : null;
 
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       await transaction.rollback();
@@ -80,9 +106,24 @@ async function createPost(req, res) {
       });
     }
 
+    if (linkedEntityType || linkedEntityId) {
+      if (!LINKED_ENTITY_TYPES.includes(linkedEntityType) || !linkedEntityId) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Invalid linked entity.' });
+      }
+
+      const linkedEntity = await resolveLinkedEntity(linkedEntityType, linkedEntityId, userId);
+      if (!linkedEntity) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Linked entity not found or not accessible.' });
+      }
+    }
+
     const post = await Post.create({
       user_id: userId,
       content: content.trim(),
+      linked_entity_type: linkedEntityType,
+      linked_entity_id: linkedEntityId,
     }, { transaction });
 
     await upsertPostEntities({
@@ -270,6 +311,35 @@ async function createReply(req, res) {
     });
 
     await parent.increment('reply_count', { by: 1, transaction });
+
+    await emitUserNotification({
+      recipientUserId: parent.user_id,
+      actorUserId: userId,
+      eventType: 'post_replied',
+      category: 'social',
+      priority: 'important',
+      entityType: 'post',
+      entityId: parent.id,
+      entitySnapshot: buildEntityRef({
+        type: 'post',
+        id: parent.id,
+        title: parent.content,
+        href: `/post/${parent.id}`,
+      }),
+      secondaryEntityType: 'post',
+      secondaryEntityId: reply.id,
+      secondarySnapshot: buildEntityRef({
+        type: 'post',
+        id: reply.id,
+        title: reply.content,
+        href: `/post/${parent.id}`,
+      }),
+      actionUrl: `/post/${parent.id}`,
+      previewText: 'replied to your post',
+      groupKey: `post:reply:${parent.id}:${parent.user_id}`,
+      dedupeKey: `post_replied:${reply.id}:${parent.user_id}`,
+      createdAt: reply.created_at,
+    }, { transaction });
 
     const createdReply = await Post.findByPk(reply.id, {
       include: getBaseIncludes(),
