@@ -19,9 +19,9 @@ const freelanceMeRoutes = require('./routes/freelance/freelanceMeRoutes');
 
 const app = express();
 
+app.use(requestLogger);
 app.use(cors());
 app.use(express.json());
-app.use(requestLogger);
 
 app.get('/', (req, res) => {
   res.json({ message: 'LogoutDev backend is running' });

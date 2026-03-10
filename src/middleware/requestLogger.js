@@ -74,6 +74,7 @@ function requestLogger(req, res, next) {
     ? req.headers['x-request-id'].trim()
     : crypto.randomUUID();
   const startedAt = process.hrtime.bigint();
+  let hasLoggedRequest = false;
 
   res.setHeader('X-Request-Id', requestId);
   captureResponsePreview(res);
@@ -85,11 +86,19 @@ function requestLogger(req, res, next) {
       path: req.originalUrl || req.url,
     },
     () => {
-      res.on('finish', () => {
+      const logRequestCompletion = (eventName) => {
+        if (hasLoggedRequest) {
+          return;
+        }
+
+        hasLoggedRequest = true;
         const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
         const response = {
+          event: eventName,
           statusCode: res.statusCode,
           contentLength: res.getHeader('content-length') || null,
+          headersSent: res.headersSent,
+          writableEnded: res.writableEnded,
         };
 
         if (res.statusCode >= 400 && res.locals.responseBodyPreview !== undefined) {
@@ -103,6 +112,16 @@ function requestLogger(req, res, next) {
           user: buildUserSnapshot(req),
         };
 
+        if (eventName === 'aborted') {
+          logger.warn('HTTP request aborted by client', logPayload);
+          return;
+        }
+
+        if (eventName === 'close' && !res.writableEnded) {
+          logger.warn('HTTP request connection closed before response completed', logPayload);
+          return;
+        }
+
         if (res.statusCode >= 500) {
           logger.error('HTTP request completed with server error', logPayload);
           return;
@@ -114,6 +133,20 @@ function requestLogger(req, res, next) {
         }
 
         logger.info('HTTP request completed', logPayload);
+      };
+
+      req.once('aborted', () => {
+        logRequestCompletion('aborted');
+      });
+
+      res.once('close', () => {
+        if (!res.writableEnded) {
+          logRequestCompletion('close');
+        }
+      });
+
+      res.once('finish', () => {
+        logRequestCompletion('finish');
       });
 
       return next();
