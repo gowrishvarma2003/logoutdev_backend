@@ -3,7 +3,7 @@ name: Deploy Backend to GCP
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   deploy:
