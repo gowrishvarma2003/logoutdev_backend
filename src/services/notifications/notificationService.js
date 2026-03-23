@@ -100,17 +100,37 @@ async function canAccessSpace(spaceId, userId) {
 
 async function canAccessRepo(repoId, userId) {
   const repo = await ProjectSpaceRepo.findByPk(repoId, {
-    attributes: ['id', 'space_id'],
+    attributes: ['id', 'space_id', 'owner_id', 'visibility'],
   });
   if (!repo) return false;
-  if (await canAccessSpace(repo.space_id, userId)) return true;
+  if (repo.visibility === 'public') return true;
+  if (repo.owner_id === userId) return true;
+
+  if (repo.space_id) {
+    const membership = await ProjectSpaceMember.findOne({
+      where: { space_id: repo.space_id, user_id: userId },
+      attributes: ['role'],
+    });
+
+    if (membership && ['owner', 'maintainer'].includes(membership.role)) {
+      return true;
+    }
+  }
 
   const repoMembership = await ProjectSpaceRepoMember.findOne({
     where: { repo_id: repo.id, user_id: userId },
     attributes: ['id'],
   });
 
-  return Boolean(repoMembership);
+  if (!repoMembership) return false;
+  if (!repo.space_id) return true;
+
+  const contributorMembership = await ProjectSpaceMember.findOne({
+    where: { space_id: repo.space_id, user_id: userId },
+    attributes: ['id'],
+  });
+
+  return Boolean(contributorMembership);
 }
 
 async function canOpenNotification(notification, userId) {

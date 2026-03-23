@@ -45,7 +45,34 @@ const {
   getIssue,
   createIssue,
   updateIssue,
+  listWork,
+  getWork,
+  createWork,
+  updateWork,
+  bulkUpdateWork,
+  getWorkActivity,
+  getWorkSummary,
 } = require('../../controllers/spaces/issueController');
+const {
+  listWorkComments,
+  createWorkComment,
+} = require('../../controllers/spaces/workCommentController');
+const {
+  listMilestones,
+  createMilestone,
+  updateMilestone,
+} = require('../../controllers/spaces/milestoneController');
+const {
+  listAttachments,
+  createAttachment,
+  updateAttachment,
+  deleteAttachment,
+} = require('../../controllers/spaces/attachmentController');
+const {
+  listFollowers,
+  followSpace,
+  unfollowSpace,
+} = require('../../controllers/spaces/followerController');
 const {
   listRepos,
   createRepo,
@@ -78,8 +105,19 @@ router.get('/:spaceId/contributors', getContributors);
 router.get('/:spaceId/discussions', listDiscussions);
 router.get('/:spaceId/discussions/:threadId', getDiscussion);
 router.get('/:spaceId/updates', listUpdates);
+router.get('/:spaceId/work/summary', getWorkSummary);
+router.get('/:spaceId/issues/summary', getWorkSummary);
+router.get('/:spaceId/work/:issueId/activity', getWorkActivity);
+router.get('/:spaceId/issues/:issueId/activity', getWorkActivity);
+router.get('/:spaceId/work/:issueId/comments', listWorkComments);
+router.get('/:spaceId/issues/:issueId/comments', listWorkComments);
+router.get('/:spaceId/work', listWork);
+router.get('/:spaceId/work/:issueId', getWork);
 router.get('/:spaceId/issues', listIssues);
 router.get('/:spaceId/issues/:issueId', getIssue);
+router.get('/:spaceId/milestones', listMilestones);
+router.get('/:spaceId/attachments', listAttachments);
+router.get('/:spaceId/followers', listFollowers);
 router.get('/:spaceId/health', getHealth);
 router.get('/:spaceId/decisions', getDecisions);
 
@@ -107,8 +145,25 @@ router.post('/:spaceId/updates', updateRateLimiter, createUpdate);
 router.patch('/:spaceId/updates/:updateId', updateUpdate);
 router.delete('/:spaceId/updates/:updateId', deleteUpdate);
 
+router.patch('/:spaceId/work/bulk', issueWriteRateLimiter, bulkUpdateWork);
+router.patch('/:spaceId/issues/bulk', issueWriteRateLimiter, bulkUpdateWork);
+router.post('/:spaceId/work/:issueId/comments', issueWriteRateLimiter, createWorkComment);
+router.post('/:spaceId/work/:issueId/comments/:commentId/replies', issueWriteRateLimiter, createWorkComment);
+router.post('/:spaceId/issues/:issueId/comments', issueWriteRateLimiter, createWorkComment);
+router.post('/:spaceId/issues/:issueId/comments/:commentId/replies', issueWriteRateLimiter, createWorkComment);
+router.post('/:spaceId/work', issueWriteRateLimiter, createWork);
+router.patch('/:spaceId/work/:issueId', issueWriteRateLimiter, updateWork);
 router.post('/:spaceId/issues', issueWriteRateLimiter, createIssue);
 router.patch('/:spaceId/issues/:issueId', issueWriteRateLimiter, updateIssue);
+router.post('/:spaceId/milestones', issueWriteRateLimiter, createMilestone);
+router.patch('/:spaceId/milestones/:milestoneId', issueWriteRateLimiter, updateMilestone);
+
+router.post('/:spaceId/followers', followSpace);
+router.delete('/:spaceId/followers', unfollowSpace);
+
+router.post('/:spaceId/attachments', createAttachment);
+router.patch('/:spaceId/attachments/:attachmentId', updateAttachment);
+router.delete('/:spaceId/attachments/:attachmentId', deleteAttachment);
 
 router.get('/:spaceId/repos', listRepos);
 router.post('/:spaceId/repos', createRepo);

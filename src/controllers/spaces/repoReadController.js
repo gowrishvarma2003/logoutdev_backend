@@ -1,6 +1,6 @@
 const { parsePagination } = require('../../services/spaces/pagination');
-const { ensureRepoReadable } = require('../../services/spaces/repoAccess');
-const { getRepoPath } = require('../../services/git/gitPath');
+const { ensureRepoReadable, ensureLegacyRepoReadable } = require('../../services/spaces/repoAccess');
+const { resolveRepoPath } = require('../../services/git/gitPath');
 const {
   normalizeRepoPath,
   isSafeRef,
@@ -10,9 +10,19 @@ const {
   listCommits,
 } = require('../../services/git/gitShell');
 
+async function loadReadableRepo(req, res) {
+  const userId = req.user?.userId || null;
+
+  if (req.params.spaceId) {
+    return ensureLegacyRepoReadable(req.params.spaceId, req.params.repoId, userId, res);
+  }
+
+  return ensureRepoReadable(req.params.repoId, userId, res);
+}
+
 async function getTree(req, res) {
   try {
-    const result = await ensureRepoReadable(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await loadReadableRepo(req, res);
     if (!result) return;
 
     const ref = typeof req.query.ref === 'string' && req.query.ref ? req.query.ref : result.repo.default_branch;
@@ -21,7 +31,8 @@ async function getTree(req, res) {
       return res.status(400).json({ error: 'Invalid ref.' });
     }
 
-    const entries = await listTree(getRepoPath(result.repo.space_id, result.repo.id), ref, treePath);
+    const repoPath = await resolveRepoPath(result.repo.id, result.repo.space_id);
+    const entries = await listTree(repoPath, ref, treePath);
 
     return res.json({
       ref,
@@ -35,7 +46,7 @@ async function getTree(req, res) {
 
 async function getBlob(req, res) {
   try {
-    const result = await ensureRepoReadable(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await loadReadableRepo(req, res);
     if (!result) return;
 
     const ref = typeof req.query.ref === 'string' && req.query.ref ? req.query.ref : result.repo.default_branch;
@@ -44,7 +55,8 @@ async function getBlob(req, res) {
       return res.status(400).json({ error: 'Invalid ref.' });
     }
 
-    const blob = await readBlob(getRepoPath(result.repo.space_id, result.repo.id), ref, blobPath);
+    const repoPath = await resolveRepoPath(result.repo.id, result.repo.space_id);
+    const blob = await readBlob(repoPath, ref, blobPath);
 
     return res.json({
       ref,
@@ -58,7 +70,7 @@ async function getBlob(req, res) {
 
 async function getReadme(req, res) {
   try {
-    const result = await ensureRepoReadable(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await loadReadableRepo(req, res);
     if (!result) return;
 
     const ref = typeof req.query.ref === 'string' && req.query.ref ? req.query.ref : result.repo.default_branch;
@@ -66,7 +78,8 @@ async function getReadme(req, res) {
       return res.status(400).json({ error: 'Invalid ref.' });
     }
 
-    const readme = await findReadme(getRepoPath(result.repo.space_id, result.repo.id), ref);
+    const repoPath = await resolveRepoPath(result.repo.id, result.repo.space_id);
+    const readme = await findReadme(repoPath, ref);
     return res.json({ readme });
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Failed to fetch README.' });
@@ -75,7 +88,7 @@ async function getReadme(req, res) {
 
 async function getCommits(req, res) {
   try {
-    const result = await ensureRepoReadable(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await loadReadableRepo(req, res);
     if (!result) return;
 
     const ref = typeof req.query.ref === 'string' && req.query.ref ? req.query.ref : result.repo.default_branch;
@@ -84,9 +97,10 @@ async function getCommits(req, res) {
       return res.status(400).json({ error: 'Invalid ref.' });
     }
 
+    const repoPath = await resolveRepoPath(result.repo.id, result.repo.space_id);
     const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
     const commits = await listCommits(
-      getRepoPath(result.repo.space_id, result.repo.id),
+      repoPath,
       ref,
       commitPath,
       page,

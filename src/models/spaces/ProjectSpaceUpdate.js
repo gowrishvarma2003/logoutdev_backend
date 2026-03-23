@@ -50,6 +50,14 @@ const ProjectSpaceUpdate = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    repo_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+    work_item_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
     evidence_links: {
       type: DataTypes.JSONB,
       allowNull: false,
@@ -69,7 +77,14 @@ const ProjectSpaceUpdate = sequelize.define(
   {
     tableName: 'project_space_updates',
     timestamps: false,
-    indexes: [{ fields: ['space_id'] }, { fields: ['author_id'] }, { fields: ['type'] }, { fields: ['created_at'] }],
+    indexes: [
+      { fields: ['space_id'] },
+      { fields: ['author_id'] },
+      { fields: ['type'] },
+      { fields: ['repo_id'] },
+      { fields: ['work_item_id'] },
+      { fields: ['created_at'] },
+    ],
   }
 );
 

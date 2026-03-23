@@ -3,15 +3,23 @@ const {
   User,
 } = require('../../models');
 const { asTrimmedString } = require('../../services/spaces/spaceValidation');
-const { ensureRepoAdmin, ensureRepoMemberCandidate } = require('../../services/spaces/repoAccess');
+const { ensureRepoAdmin, ensureLegacyRepoAdmin, ensureRepoMemberCandidate } = require('../../services/spaces/repoAccess');
 const {
   buildEntityRef,
   emitUserNotification,
 } = require('../../services/notifications/notificationService');
 
+async function loadAdminRepo(req, res) {
+  if (req.params.spaceId) {
+    return ensureLegacyRepoAdmin(req.params.spaceId, req.params.repoId, req.user.userId, res);
+  }
+
+  return ensureRepoAdmin(req.params.repoId, req.user.userId, res);
+}
+
 async function listRepoMembers(req, res) {
   try {
-    const result = await ensureRepoAdmin(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await loadAdminRepo(req, res);
     if (!result) return;
 
     const members = await ProjectSpaceRepoMember.findAll({
@@ -28,7 +36,7 @@ async function listRepoMembers(req, res) {
 
 async function upsertRepoMember(req, res) {
   try {
-    const result = await ensureRepoAdmin(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await loadAdminRepo(req, res);
     if (!result) return;
 
     const role = asTrimmedString(req.body.role);
@@ -36,7 +44,7 @@ async function upsertRepoMember(req, res) {
       return res.status(400).json({ error: 'Role must be read or write.' });
     }
 
-    const candidate = await ensureRepoMemberCandidate(req.params.spaceId, req.params.userId, res);
+    const candidate = await ensureRepoMemberCandidate(result.repo, req.params.userId, res);
     if (!candidate) return;
 
     const [member, created] = await ProjectSpaceRepoMember.findOrCreate({
@@ -72,9 +80,9 @@ async function upsertRepoMember(req, res) {
           type: 'repo',
           id: result.repo.id,
           title: result.repo.name,
-          href: `/spaces/${req.params.spaceId}/repos/${result.repo.id}`,
+          href: `/repos/${result.repo.id}`,
         }),
-        actionUrl: `/spaces/${req.params.spaceId}/repos/${result.repo.id}`,
+        actionUrl: `/repos/${result.repo.id}`,
         previewText: `granted you ${role} access to a repository`,
         dedupeKey: `repo_access_granted:${result.repo.id}:${req.params.userId}:${role}`,
       });
@@ -88,10 +96,10 @@ async function upsertRepoMember(req, res) {
 
 async function removeRepoMember(req, res) {
   try {
-    const result = await ensureRepoAdmin(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await loadAdminRepo(req, res);
     if (!result) return;
 
-    const candidate = await ensureRepoMemberCandidate(req.params.spaceId, req.params.userId, res);
+    const candidate = await ensureRepoMemberCandidate(result.repo, req.params.userId, res);
     if (!candidate) return;
 
     await ProjectSpaceRepoMember.destroy({

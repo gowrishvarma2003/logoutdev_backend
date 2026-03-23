@@ -55,6 +55,33 @@ const ProjectSpace = sequelize.define(
       allowNull: false,
       defaultValue: 'public',
     },
+    working_in_public: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    current_focus: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    open_roles: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
+    },
+    needed_skills: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
+    },
+    contribution_guide: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    response_sla: {
+      type: DataTypes.STRING(160),
+      allowNull: true,
+    },
     primary_repo_url: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -87,6 +114,7 @@ const ProjectSpace = sequelize.define(
       { fields: ['owner_id'] },
       { fields: ['status'] },
       { fields: ['visibility'] },
+      { fields: ['working_in_public'] },
       { fields: ['created_at'] },
     ],
   }

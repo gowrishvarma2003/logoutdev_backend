@@ -3,6 +3,9 @@ const {
   ProjectSpace,
   ProjectSpaceMember,
   ProjectSpaceStack,
+  ProjectSpaceIssue,
+  ProjectSpaceUpdate,
+  ProjectSpaceFollower,
   Launch,
   User,
 } = require('../../models');
@@ -16,10 +19,18 @@ const {
   SPACE_STATUSES,
   SPACE_VISIBILITIES,
   asTrimmedString,
+  normalizeStringArray,
   slugify,
   isAllowedValue,
 } = require('../../services/spaces/spaceValidation');
 const { getSpaceGraph } = require('../../services/workGraph/workGraphService');
+const { listVisibleAttachments } = require('../../services/spaces/spaceAttachmentService');
+
+function parseBooleanParam(value) {
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  return null;
+}
 
 async function createSpace(req, res) {
   try {
@@ -30,6 +41,12 @@ async function createSpace(req, res) {
     const status = asTrimmedString(req.body.status || 'idea');
     const visibility = asTrimmedString(req.body.visibility || 'public');
     const primaryRepoUrl = asTrimmedString(req.body.primary_repo_url) || null;
+    const workingInPublic = Boolean(req.body.working_in_public);
+    const currentFocus = asTrimmedString(req.body.current_focus) || null;
+    const openRoles = normalizeStringArray(req.body.open_roles, 12);
+    const neededSkills = normalizeStringArray(req.body.needed_skills, 20);
+    const contributionGuide = asTrimmedString(req.body.contribution_guide) || null;
+    const responseSla = asTrimmedString(req.body.response_sla) || null;
 
     if (name.length < 2) {
       return res.status(400).json({ error: 'Project name must be at least 2 characters.' });
@@ -71,6 +88,12 @@ async function createSpace(req, res) {
       description,
       status,
       visibility,
+      working_in_public: workingInPublic,
+      current_focus: currentFocus,
+      open_roles: openRoles,
+      needed_skills: neededSkills,
+      contribution_guide: contributionGuide,
+      response_sla: responseSla,
       primary_repo_url: primaryRepoUrl,
     });
 
@@ -93,6 +116,11 @@ async function listSpaces(req, res) {
     const status = asTrimmedString(req.query.status || '');
     const visibility = asTrimmedString(req.query.visibility || 'public');
     const tag = asTrimmedString(req.query.tag || '').toLowerCase();
+    const neededSkill = asTrimmedString(req.query.needed_skill || '').toLowerCase();
+    const workingInPublic = parseBooleanParam(req.query.working_in_public);
+    const lookingForContributors = parseBooleanParam(req.query.looking_for_contributors);
+    const goodFirstTasks = parseBooleanParam(req.query.good_first_tasks);
+    const recentlyShipped = parseBooleanParam(req.query.recently_shipped);
     const { limit, page, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
 
     if (mine && !requesterId) {
@@ -112,6 +140,10 @@ async function listSpaces(req, res) {
 
     if (where.visibility === 'private' && !requesterId) {
       return res.status(401).json({ error: 'Authentication required to view private spaces.' });
+    }
+
+    if (workingInPublic !== null) {
+      where.working_in_public = workingInPublic;
     }
 
     const include = [
@@ -135,7 +167,7 @@ async function listSpaces(req, res) {
       });
     }
 
-    const { count, rows: spaces } = await ProjectSpace.findAndCountAll({
+    let { count, rows: spaces } = await ProjectSpace.findAndCountAll({
       where,
       include,
       order: [['created_at', 'DESC']],
@@ -143,6 +175,56 @@ async function listSpaces(req, res) {
       offset,
       distinct: true,
     });
+
+    if (neededSkill) {
+      spaces = spaces.filter((space) =>
+        Array.isArray(space.needed_skills)
+        && space.needed_skills.some((skill) => String(skill).toLowerCase().includes(neededSkill))
+      );
+      count = spaces.length;
+    }
+
+    if (lookingForContributors === true) {
+      spaces = spaces.filter((space) =>
+        (Array.isArray(space.open_roles) && space.open_roles.length > 0)
+        || (Array.isArray(space.needed_skills) && space.needed_skills.length > 0)
+      );
+      count = spaces.length;
+    }
+
+    if (goodFirstTasks === true && spaces.length > 0) {
+      const goodFirstSpaceIds = new Set(
+        (
+          await ProjectSpaceIssue.findAll({
+            where: {
+              space_id: spaces.map((space) => space.id),
+              good_first_task: true,
+            },
+            attributes: ['space_id'],
+          })
+        ).map((item) => item.space_id)
+      );
+      spaces = spaces.filter((space) => goodFirstSpaceIds.has(space.id));
+      count = spaces.length;
+    }
+
+    if (recentlyShipped === true && spaces.length > 0) {
+      const recentWindow = new Date(Date.now() - (14 * 24 * 60 * 60 * 1000));
+      const shippedSpaceIds = new Set(
+        (
+          await ProjectSpaceUpdate.findAll({
+            where: {
+              space_id: spaces.map((space) => space.id),
+              type: { [Op.in]: ['release', 'milestone'] },
+              created_at: { [Op.gte]: recentWindow },
+            },
+            attributes: ['space_id'],
+          })
+        ).map((item) => item.space_id)
+      );
+      spaces = spaces.filter((space) => shippedSpaceIds.has(space.id));
+      count = spaces.length;
+    }
 
     if (mine) {
       const eligibleSpaces = spaces.filter(
@@ -201,9 +283,17 @@ async function getSpace(req, res) {
     }
 
     const graph = await getSpaceGraph(space, requesterId);
+    const attachedRepos = await listVisibleAttachments(space.id, requesterId);
+    const followerCount = await ProjectSpaceFollower.count({ where: { space_id: space.id } });
+    const isFollowing = requesterId
+      ? Boolean(await ProjectSpaceFollower.findOne({ where: { space_id: space.id, user_id: requesterId }, attributes: ['id'] }))
+      : false;
     return res.json({
       space: {
         ...space.toJSON(),
+        attached_repos: attachedRepos,
+        follower_count: followerCount,
+        is_following: isFollowing,
         ...graph,
       },
     });
@@ -256,6 +346,30 @@ async function updateSpace(req, res) {
         return res.status(400).json({ error: 'Invalid project visibility.' });
       }
       updates.visibility = visibility;
+    }
+
+    if (req.body.working_in_public !== undefined) {
+      updates.working_in_public = Boolean(req.body.working_in_public);
+    }
+
+    if (req.body.current_focus !== undefined) {
+      updates.current_focus = asTrimmedString(req.body.current_focus) || null;
+    }
+
+    if (req.body.open_roles !== undefined) {
+      updates.open_roles = normalizeStringArray(req.body.open_roles, 12);
+    }
+
+    if (req.body.needed_skills !== undefined) {
+      updates.needed_skills = normalizeStringArray(req.body.needed_skills, 20);
+    }
+
+    if (req.body.contribution_guide !== undefined) {
+      updates.contribution_guide = asTrimmedString(req.body.contribution_guide) || null;
+    }
+
+    if (req.body.response_sla !== undefined) {
+      updates.response_sla = asTrimmedString(req.body.response_sla) || null;
     }
 
     if (req.body.primary_repo_url !== undefined) {

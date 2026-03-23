@@ -1,14 +1,16 @@
 const SPACE_STATUSES = new Set(['idea', 'building', 'shipping', 'paused', 'archived']);
 const SPACE_VISIBILITIES = new Set(['public', 'private']);
+const REPO_VISIBILITIES = new Set(['public', 'private']);
 const STACK_CATEGORIES = new Set(['frontend', 'backend', 'database', 'infra', 'tooling', 'other']);
 const STACK_MATURITY = new Set(['planned', 'in-use', 'deprecated']);
 const MEMBER_ROLES = new Set(['owner', 'maintainer', 'contributor']);
 const JOIN_REVIEW_ACTIONS = new Set(['accept', 'reject', 'need-info', 'request-more-info']);
-const DISCUSSION_CATEGORIES = new Set(['idea', 'decision', 'question', 'blocked', 'retrospective']);
+const DISCUSSION_CATEGORIES = new Set(['idea', 'decision', 'question', 'blocked', 'retrospective', 'announcement']);
 const DISCUSSION_STATUSES = new Set(['open', 'in-progress', 'resolved', 'closed']);
 const UPDATE_TYPES = new Set(['milestone', 'devlog', 'release', 'blocker', 'weekly-summary']);
 const ISSUE_STATUSES = new Set(['open', 'triaged', 'in-progress', 'resolved', 'closed']);
 const ISSUE_PRIORITIES = new Set(['low', 'medium', 'high', 'critical']);
+const WORK_ITEM_TYPES = new Set(['task', 'bug', 'feature', 'docs', 'research']);
 const REPO_MEMBER_ROLES = new Set(['read', 'write']);
 
 function slugify(value) {
@@ -56,6 +58,7 @@ function isAllowedValue(value, allowedSet) {
 module.exports = {
   SPACE_STATUSES,
   SPACE_VISIBILITIES,
+  REPO_VISIBILITIES,
   STACK_CATEGORIES,
   STACK_MATURITY,
   MEMBER_ROLES,
@@ -65,6 +68,7 @@ module.exports = {
   UPDATE_TYPES,
   ISSUE_STATUSES,
   ISSUE_PRIORITIES,
+  WORK_ITEM_TYPES,
   REPO_MEMBER_ROLES,
   slugify,
   asTrimmedString,

@@ -1,6 +1,8 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../db/sequelize');
 
+const REPO_VISIBILITIES = ['public', 'private'];
+
 const ProjectSpaceRepo = sequelize.define(
   'ProjectSpaceRepo',
   {
@@ -10,6 +12,10 @@ const ProjectSpaceRepo = sequelize.define(
       primaryKey: true,
     },
     space_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+    owner_id: {
       type: DataTypes.UUID,
       allowNull: false,
     },
@@ -43,6 +49,11 @@ const ProjectSpaceRepo = sequelize.define(
         len: [1, 100],
       },
     },
+    visibility: {
+      type: DataTypes.ENUM(...REPO_VISIBILITIES),
+      allowNull: false,
+      defaultValue: 'private',
+    },
     created_by: {
       type: DataTypes.UUID,
       allowNull: false,
@@ -67,8 +78,9 @@ const ProjectSpaceRepo = sequelize.define(
     tableName: 'project_space_repos',
     timestamps: false,
     indexes: [
-      { unique: true, fields: ['space_id', 'slug'] },
       { fields: ['space_id'] },
+      { fields: ['owner_id'] },
+      { fields: ['visibility'] },
       { fields: ['archived_at'] },
     ],
   }

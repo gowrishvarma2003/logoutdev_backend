@@ -3,6 +3,7 @@ const sequelize = require('../../db/sequelize');
 
 const ISSUE_STATUSES = ['open', 'triaged', 'in-progress', 'resolved', 'closed'];
 const ISSUE_PRIORITIES = ['low', 'medium', 'high', 'critical'];
+const WORK_TYPES = ['task', 'bug', 'feature', 'docs', 'research'];
 
 const ProjectSpaceIssue = sequelize.define(
   'ProjectSpaceIssue',
@@ -27,6 +28,11 @@ const ProjectSpaceIssue = sequelize.define(
         len: [5, 180],
       },
     },
+    type: {
+      type: DataTypes.ENUM(...WORK_TYPES),
+      allowNull: false,
+      defaultValue: 'task',
+    },
     body: {
       type: DataTypes.TEXT,
       allowNull: false,
@@ -48,6 +54,44 @@ const ProjectSpaceIssue = sequelize.define(
       type: DataTypes.UUID,
       allowNull: true,
     },
+    repo_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+    milestone_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+    good_first_task: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    help_wanted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    blocked_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    close_reason: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+    estimate: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+    target_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    needed_skill: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
     created_at: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -66,8 +110,14 @@ const ProjectSpaceIssue = sequelize.define(
       { fields: ['space_id'] },
       { fields: ['author_id'] },
       { fields: ['assignee_user_id'] },
+      { fields: ['repo_id'] },
       { fields: ['status'] },
       { fields: ['priority'] },
+      { fields: ['type'] },
+      { fields: ['milestone_id'] },
+      { fields: ['good_first_task'] },
+      { fields: ['help_wanted'] },
+      { fields: ['target_date'] },
       { fields: ['created_at'] },
       { fields: ['updated_at'] },
     ],

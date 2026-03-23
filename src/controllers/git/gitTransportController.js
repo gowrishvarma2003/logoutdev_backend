@@ -1,20 +1,40 @@
 const path = require('path');
-const { getRepoBySlugsOr404, getAccessContext } = require('../../services/spaces/repoAccess');
+const { getRepoByGitRouteOr404, getRepoOr404, getAccessContext } = require('../../services/spaces/repoAccess');
 const { verifyAccessToken } = require('../../services/auth/accessTokens');
 const { streamGitHttpBackend } = require('../../services/git/gitHttpBackend');
-const { getRepoPath } = require('../../services/git/gitPath');
+const { resolveRepoPath } = require('../../services/git/gitPath');
 
 function getRouteParams(req) {
-  if (Array.isArray(req.params)) {
+  if (req.params?.repoId) {
     return {
-      spaceSlug: req.params[0],
+      repoId: req.params.repoId,
+      namespace: null,
+      repoSlug: null,
+      rest: req.params[0] || '',
+    };
+  }
+
+  if (Array.isArray(req.params)) {
+    if (req.path.startsWith('/repos/')) {
+      return {
+        repoId: req.params[0],
+        namespace: null,
+        repoSlug: null,
+        rest: req.params[1] || '',
+      };
+    }
+
+    return {
+      repoId: null,
+      namespace: req.params[0],
       repoSlug: req.params[1],
       rest: req.params[2] || '',
     };
   }
 
   return {
-    spaceSlug: req.params?.[0],
+    repoId: null,
+    namespace: req.params?.[0],
     repoSlug: req.params?.[1],
     rest: req.params?.[2] || '',
   };
@@ -51,15 +71,28 @@ function getGitService(req) {
 
 async function handleGitTransport(req, res) {
   try {
-    const { spaceSlug, repoSlug, rest } = getRouteParams(req);
-    if (!spaceSlug || !repoSlug) {
+    const { repoId, namespace, repoSlug, rest } = getRouteParams(req);
+    if (!repoId && (!namespace || !repoSlug)) {
       return res.status(404).end('Repository not found');
     }
 
-    const repo = await getRepoBySlugsOr404(spaceSlug, repoSlug, res);
+    const repo = repoId
+      ? await getRepoOr404(repoId, res)
+      : await getRepoByGitRouteOr404(namespace, repoSlug, res);
     if (!repo) return;
 
+    const serviceMode = getGitService(req);
     const credentials = getBasicAuthToken(req);
+
+    if (!credentials && serviceMode === 'read' && repo.visibility === 'public') {
+      const repoPath = await resolveRepoPath(repo.id, repo.space_id);
+      return streamGitHttpBackend(req, res, {
+        gitProjectRoot: path.dirname(repoPath),
+        pathInfo: `/${path.basename(repoPath)}${rest ? `/${rest}` : ''}`,
+        remoteUser: 'anonymous',
+      });
+    }
+
     if (!credentials) {
       res.setHeader('WWW-Authenticate', 'Basic realm="LogoutDev Git"');
       return res.status(401).end('Authentication required');
@@ -72,7 +105,6 @@ async function handleGitTransport(req, res) {
     }
 
     const access = await getAccessContext(repo, verified.userId);
-    const serviceMode = getGitService(req);
 
     if (serviceMode === 'write' && !access.canWrite) {
       return res.status(404).end('Repository not found');
@@ -82,7 +114,7 @@ async function handleGitTransport(req, res) {
       return res.status(404).end('Repository not found');
     }
 
-    const repoPath = getRepoPath(repo.space.id, repo.id);
+    const repoPath = await resolveRepoPath(repo.id, repo.space_id);
     return streamGitHttpBackend(req, res, {
       gitProjectRoot: path.dirname(repoPath),
       pathInfo: `/${path.basename(repoPath)}${rest ? `/${rest}` : ''}`,

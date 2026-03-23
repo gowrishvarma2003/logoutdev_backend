@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../db/sequelize');
 
-const DISCUSSION_CATEGORIES = ['idea', 'decision', 'question', 'blocked', 'retrospective'];
+const DISCUSSION_CATEGORIES = ['idea', 'decision', 'question', 'blocked', 'retrospective', 'announcement'];
 const DISCUSSION_STATUSES = ['open', 'in-progress', 'resolved', 'closed'];
 
 const ProjectSpaceDiscussion = sequelize.define(
@@ -51,6 +51,10 @@ const ProjectSpaceDiscussion = sequelize.define(
     },
     decision_summary: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    answer_reply_id: {
+      type: DataTypes.UUID,
       allowNull: true,
     },
     created_at: {

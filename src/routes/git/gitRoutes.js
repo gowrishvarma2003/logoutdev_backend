@@ -3,6 +3,7 @@ const { handleGitTransport } = require('../../controllers/git/gitTransportContro
 
 const router = express.Router();
 
+router.all(/^\/repos\/([^/]+)\.git(?:\/(.*))?$/, handleGitTransport);
 router.all(/^\/([^/]+)\/([^/]+)\.git(?:\/(.*))?$/, handleGitTransport);
 
 module.exports = router;

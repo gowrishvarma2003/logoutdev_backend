@@ -2,8 +2,10 @@ const { Op } = require('sequelize');
 const {
   ProjectSpaceDiscussion,
   ProjectSpaceDiscussionReply,
+  ProjectSpaceFollower,
   ProjectSpaceJoinRequest,
   ProjectSpaceUpdate,
+  ProjectSpace,
   User,
 } = require('../../models');
 const { ensureSpaceReadable } = require('../../services/spaces/spaceAccess');
@@ -27,7 +29,9 @@ async function getHealth(req, res) {
     thirtyDaysAgo.setDate(now.getDate() - 30);
 
     const [
+      space,
       recentUpdatesCount,
+      recentShipsCount,
       activeContributorsCount,
       pendingRequestsCount,
       recentRequestReviewCount,
@@ -35,11 +39,20 @@ async function getHealth(req, res) {
       recentReplyCount,
       recentBlockersCount,
       resolvedBlockersCount,
+      followerCount,
     ] = await Promise.all([
+      ProjectSpace.findByPk(spaceId, { attributes: ['id', 'open_roles'] }),
       ProjectSpaceUpdate.count({
         where: {
           space_id: spaceId,
           created_at: { [Op.gte]: sevenDaysAgo },
+        },
+      }),
+      ProjectSpaceUpdate.count({
+        where: {
+          space_id: spaceId,
+          type: { [Op.in]: ['release', 'milestone'] },
+          created_at: { [Op.gte]: thirtyDaysAgo },
         },
       }),
       ProjectSpaceUpdate.count({
@@ -97,6 +110,9 @@ async function getHealth(req, res) {
           updated_at: { [Op.gte]: thirtyDaysAgo },
         },
       }),
+      ProjectSpaceFollower.count({
+        where: { space_id: spaceId },
+      }),
     ]);
 
     const updateScore = Math.min(recentUpdatesCount * 10, 30);
@@ -127,6 +143,17 @@ async function getHealth(req, res) {
           responsivenessScore,
           requestScore,
           blockerScore,
+        },
+        metrics: {
+          recent_updates: recentUpdatesCount,
+          recent_ships: recentShipsCount,
+          active_contributors: activeContributorsCount,
+          open_blockers: recentBlockersCount,
+          resolved_blockers: resolvedBlockersCount,
+          pending_join_requests: pendingRequestsCount,
+          reviewed_join_requests_30d: recentRequestReviewCount,
+          followers: followerCount,
+          open_roles: Array.isArray(space?.open_roles) ? space.open_roles.length : 0,
         },
       },
     });

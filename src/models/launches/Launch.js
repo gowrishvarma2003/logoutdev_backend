@@ -37,7 +37,6 @@ const Launch = sequelize.define(
     linked_space_id: {
       type: DataTypes.UUID,
       allowNull: true,
-      unique: true,
       defaultValue: null,
     },
     name: {

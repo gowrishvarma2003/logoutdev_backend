@@ -47,6 +47,10 @@ async function createDiscussion(req, res) {
       return res.status(400).json({ error: 'Invalid discussion category.' });
     }
 
+    if (category === 'announcement' && !isMaintainerOrOwner(membership)) {
+      return res.status(403).json({ error: 'Only the space owner or maintainers can post announcements.' });
+    }
+
     const thread = await ProjectSpaceDiscussion.create({
       space_id: spaceId,
       author_id: userId,
@@ -102,6 +106,12 @@ async function getDiscussion(req, res) {
           model: ProjectSpaceDiscussionReply,
           as: 'replies',
           include: [{ model: User, as: 'author', attributes: ['id', 'name', 'email'] }],
+        },
+        {
+          model: ProjectSpaceDiscussionReply,
+          as: 'answer_reply',
+          include: [{ model: User, as: 'author', attributes: ['id', 'name', 'email'] }],
+          required: false,
         },
       ],
       order: [[{ model: ProjectSpaceDiscussionReply, as: 'replies' }, 'created_at', 'ASC']],
@@ -256,6 +266,25 @@ async function updateDiscussion(req, res) {
       updates.decision_summary = decisionSummary || null;
       if (decisionSummary && updates.category === undefined && thread.category !== 'decision') {
         updates.category = 'decision';
+      }
+    }
+
+    if (req.body.answer_reply_id !== undefined) {
+      const answerReplyId = asTrimmedString(req.body.answer_reply_id);
+      if (!answerReplyId) {
+        updates.answer_reply_id = null;
+      } else {
+        const reply = await ProjectSpaceDiscussionReply.findOne({
+          where: { id: answerReplyId, thread_id: threadId },
+          attributes: ['id'],
+        });
+        if (!reply) {
+          return res.status(400).json({ error: 'Answer reply must belong to this discussion.' });
+        }
+        updates.answer_reply_id = answerReplyId;
+        if (updates.status === undefined && thread.status !== 'resolved') {
+          updates.status = 'resolved';
+        }
       }
     }
 
