@@ -56,6 +56,47 @@ const {
   updateRelease,
   deleteRelease,
 } = require('../../controllers/repos/releaseController');
+const {
+  getRepoAccessOverview,
+  searchCollaborators,
+  getRepoInsights,
+} = require('../../controllers/repos/repoAccessController');
+const {
+  listPullRequests,
+  getPullRequestHeadOptions,
+  getPullRequestCompare,
+  createPullRequest,
+  getPullRequest,
+  updatePullRequest,
+  mergePullRequest,
+  closePullRequest,
+  reopenPullRequest,
+  getPullRequestDiff,
+  listPullRequestCommits,
+} = require('../../controllers/repos/pullRequestController');
+const {
+  submitReview,
+  listReviews,
+} = require('../../controllers/repos/prReviewController');
+const {
+  addComment,
+  listComments,
+  updateComment,
+  deleteComment,
+  resolveThread,
+} = require('../../controllers/repos/prCommentController');
+const {
+  listBranchProtectionRules,
+  createBranchProtectionRule,
+  deleteBranchProtectionRule,
+} = require('../../controllers/repos/branchProtectionController');
+const {
+  listDiscussions,
+  createDiscussion,
+  getDiscussion,
+  addDiscussionComment,
+  markAnswer,
+} = require('../../controllers/repos/repoDiscussionController');
 
 const router = express.Router();
 
@@ -77,6 +118,19 @@ router.get('/:repoId/watchers', listWatchers);
 router.get('/:repoId/forks', listForks);
 router.get('/:repoId/releases', listReleases);
 router.get('/:repoId/releases/:releaseId', getRelease);
+router.get('/:repoId/pulls', listPullRequests);
+router.get('/:repoId/pulls/head-options', authMiddleware, getPullRequestHeadOptions);
+router.get('/:repoId/pulls/compare', authMiddleware, getPullRequestCompare);
+router.get('/:repoId/pulls/:number', getPullRequest);
+router.get('/:repoId/pulls/:number/diff', getPullRequestDiff);
+router.get('/:repoId/pulls/:number/commits', listPullRequestCommits);
+router.get('/:repoId/pulls/:number/reviews', listReviews);
+router.get('/:repoId/pulls/:number/comments', listComments);
+router.get('/:repoId/branches/protection', listBranchProtectionRules);
+router.get('/:repoId/discussions', listDiscussions);
+router.get('/:repoId/discussions/:discussionId', getDiscussion);
+router.get('/:repoId/access', getRepoAccessOverview);
+router.get('/:repoId/insights', getRepoInsights);
 
 // ─── Authenticated routes ───────────────────────────────────────────
 router.use(authMiddleware);
@@ -90,6 +144,7 @@ router.delete('/:repoId', archiveRepository);
 router.get('/:repoId/members', listRepoMembers);
 router.put('/:repoId/members/:userId', upsertRepoMember);
 router.delete('/:repoId/members/:userId', removeRepoMember);
+router.get('/:repoId/collaborators/search', searchCollaborators);
 
 // Attachments
 router.put('/:repoId/attachment', upsertRepoAttachment);
@@ -122,75 +177,27 @@ router.patch('/:repoId/releases/:releaseId', updateRelease);
 router.delete('/:repoId/releases/:releaseId', deleteRelease);
 
 // Pull Requests
-const {
-  listPullRequests,
-  createPullRequest,
-  getPullRequest,
-  updatePullRequest,
-  mergePullRequest,
-  closePullRequest,
-  reopenPullRequest,
-  getPullRequestDiff,
-  listPullRequestCommits,
-} = require('../../controllers/repos/pullRequestController');
-
-router.get('/:repoId/pulls', listPullRequests);
 router.post('/:repoId/pulls', createPullRequest);
-router.get('/:repoId/pulls/:number', getPullRequest);
 router.patch('/:repoId/pulls/:number', updatePullRequest);
 router.put('/:repoId/pulls/:number/merge', mergePullRequest);
 router.put('/:repoId/pulls/:number/close', closePullRequest);
 router.put('/:repoId/pulls/:number/reopen', reopenPullRequest);
-router.get('/:repoId/pulls/:number/diff', getPullRequestDiff);
-router.get('/:repoId/pulls/:number/commits', listPullRequestCommits);
 
 // Pull Request Reviews
-const {
-  submitReview,
-  listReviews,
-} = require('../../controllers/repos/prReviewController');
-
 router.post('/:repoId/pulls/:number/reviews', submitReview);
-router.get('/:repoId/pulls/:number/reviews', listReviews);
 
 // Pull Request Comments
-const {
-  addComment,
-  listComments,
-  updateComment,
-  deleteComment,
-  resolveThread,
-} = require('../../controllers/repos/prCommentController');
-
 router.post('/:repoId/pulls/:number/comments', addComment);
-router.get('/:repoId/pulls/:number/comments', listComments);
 router.patch('/:repoId/pulls/:number/comments/:commentId', updateComment);
 router.delete('/:repoId/pulls/:number/comments/:commentId', deleteComment);
 router.put('/:repoId/pulls/:number/comments/:commentId/resolve', resolveThread);
 
 // Branch Protection Rules
-const {
-  listBranchProtectionRules,
-  createBranchProtectionRule,
-  deleteBranchProtectionRule,
-} = require('../../controllers/repos/branchProtectionController');
-
-router.get('/:repoId/branches/protection', listBranchProtectionRules);
 router.post('/:repoId/branches/protection', createBranchProtectionRule);
 router.delete('/:repoId/branches/protection/:ruleId', deleteBranchProtectionRule);
 
 // Repository Discussions
-const {
-  listDiscussions,
-  createDiscussion,
-  getDiscussion,
-  addDiscussionComment,
-  markAnswer,
-} = require('../../controllers/repos/repoDiscussionController');
-
-router.get('/:repoId/discussions', listDiscussions);
 router.post('/:repoId/discussions', createDiscussion);
-router.get('/:repoId/discussions/:discussionId', getDiscussion);
 router.post('/:repoId/discussions/:discussionId/comments', addDiscussionComment);
 router.put('/:repoId/discussions/:discussionId/answer/:commentId', markAnswer);
 

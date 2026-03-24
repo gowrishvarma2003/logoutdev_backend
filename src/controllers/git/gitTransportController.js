@@ -1,8 +1,9 @@
 const path = require('path');
 const { getRepoByGitRouteOr404, getRepoOr404, getAccessContext } = require('../../services/spaces/repoAccess');
-const { verifyAccessToken } = require('../../services/auth/accessTokens');
+const { verifyAccessToken, tokenHasScope } = require('../../services/auth/accessTokens');
 const { streamGitHttpBackend } = require('../../services/git/gitHttpBackend');
 const { resolveRepoPath } = require('../../services/git/gitPath');
+const { ensureRepositoryHooks } = require('../../services/git/gitHooks');
 
 function getRouteParams(req) {
   if (req.params?.repoId) {
@@ -104,6 +105,16 @@ async function handleGitTransport(req, res) {
       return res.status(401).end('Invalid access token');
     }
 
+    if (credentials.username && verified.token.user?.username && credentials.username !== verified.token.user.username) {
+      res.setHeader('WWW-Authenticate', 'Basic realm="LogoutDev Git"');
+      return res.status(401).end('Basic-auth username must match the access token owner');
+    }
+
+    const requiredScope = serviceMode === 'write' ? 'git:write' : 'git:read';
+    if (requiredScope && !tokenHasScope(verified.token, requiredScope)) {
+      return res.status(403).end(`Access token is missing ${requiredScope} scope`);
+    }
+
     const access = await getAccessContext(repo, verified.userId);
 
     if (serviceMode === 'write' && !access.canWrite) {
@@ -115,10 +126,15 @@ async function handleGitTransport(req, res) {
     }
 
     const repoPath = await resolveRepoPath(repo.id, repo.space_id);
+    await ensureRepositoryHooks(repoPath);
     return streamGitHttpBackend(req, res, {
       gitProjectRoot: path.dirname(repoPath),
       pathInfo: `/${path.basename(repoPath)}${rest ? `/${rest}` : ''}`,
-      remoteUser: credentials.username || verified.userId,
+      remoteUser: credentials.username || repo.owner?.username || verified.userId,
+      extraEnv: {
+        LOGOUTDEV_REPO_ID: repo.id,
+        LOGOUTDEV_ACTOR_ID: verified.userId,
+      },
     });
   } catch (error) {
     return res.status(500).json({ error: 'Git transport failed.' });

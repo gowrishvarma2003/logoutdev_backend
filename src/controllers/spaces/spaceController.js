@@ -13,6 +13,8 @@ const {
   getSpaceOr404,
   ensureSpaceReadable,
   isOwner,
+  getMembership,
+  buildSpaceViewerPermissions,
 } = require('../../services/spaces/spaceAccess');
 const { parsePagination } = require('../../services/spaces/pagination');
 const {
@@ -114,7 +116,7 @@ async function listSpaces(req, res) {
     const requesterId = req.user?.userId;
     const mine = String(req.query.mine || '').toLowerCase() === 'true';
     const status = asTrimmedString(req.query.status || '');
-    const visibility = asTrimmedString(req.query.visibility || 'public');
+    const visibility = asTrimmedString(req.query.visibility || '');
     const tag = asTrimmedString(req.query.tag || '').toLowerCase();
     const neededSkill = asTrimmedString(req.query.needed_skill || '').toLowerCase();
     const workingInPublic = parseBooleanParam(req.query.working_in_public);
@@ -288,12 +290,14 @@ async function getSpace(req, res) {
     const isFollowing = requesterId
       ? Boolean(await ProjectSpaceFollower.findOne({ where: { space_id: space.id, user_id: requesterId }, attributes: ['id'] }))
       : false;
+    const membership = requesterId ? await getMembership(space.id, requesterId) : null;
     return res.json({
       space: {
         ...space.toJSON(),
         attached_repos: attachedRepos,
         follower_count: followerCount,
         is_following: isFollowing,
+        viewer_permissions: buildSpaceViewerPermissions(space, membership, requesterId),
         ...graph,
       },
     });

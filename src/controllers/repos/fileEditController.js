@@ -2,6 +2,7 @@ const { User } = require('../../models');
 const { ensureRepoWritable } = require('../../services/spaces/repoAccess');
 const { resolveRepoPath } = require('../../services/git/gitPath');
 const { isSafeRef, writeFileContent, deleteFileByPath } = require('../../services/git/gitShell');
+const { getMatchingBranchProtectionRule, evaluateDirectBranchUpdate } = require('../../services/repos/repoGovernance');
 
 async function writeContents(req, res) {
   try {
@@ -16,6 +17,16 @@ async function writeContents(req, res) {
     if (!filePath) return res.status(400).json({ error: 'File path is required.' });
     if (!message) return res.status(400).json({ error: 'Commit message is required.' });
     if (!isSafeRef(ref)) return res.status(400).json({ error: 'Invalid branch.' });
+
+    const protectionRule = await getMatchingBranchProtectionRule(result.repo.id, ref);
+    const protection = evaluateDirectBranchUpdate({
+      rule: protectionRule,
+      access: result.access,
+      branchName: ref,
+    });
+    if (!protection.allowed) {
+      return res.status(409).json({ error: protection.blocking_reasons[0] });
+    }
 
     const user = await User.findByPk(req.user.userId, { attributes: ['name', 'email'] });
     if (!user) return res.status(400).json({ error: 'User not found.' });
@@ -44,6 +55,16 @@ async function deleteContents(req, res) {
     if (!filePath) return res.status(400).json({ error: 'File path is required.' });
     if (!message) return res.status(400).json({ error: 'Commit message is required.' });
     if (!isSafeRef(ref)) return res.status(400).json({ error: 'Invalid branch.' });
+
+    const protectionRule = await getMatchingBranchProtectionRule(result.repo.id, ref);
+    const protection = evaluateDirectBranchUpdate({
+      rule: protectionRule,
+      access: result.access,
+      branchName: ref,
+    });
+    if (!protection.allowed) {
+      return res.status(409).json({ error: protection.blocking_reasons[0] });
+    }
 
     const user = await User.findByPk(req.user.userId, { attributes: ['name', 'email'] });
     if (!user) return res.status(400).json({ error: 'User not found.' });

@@ -28,6 +28,11 @@ const UserAccessToken = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: false,
     },
+    scopes: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: ['git:read', 'git:write'],
+    },
     last_used_at: {
       type: DataTypes.DATE,
       allowNull: true,

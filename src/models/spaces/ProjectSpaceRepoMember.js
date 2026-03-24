@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../db/sequelize');
 
-const REPO_MEMBER_ROLES = ['read', 'write'];
+const REPO_MEMBER_ROLES = ['read', 'triage', 'write', 'maintain', 'admin'];
 
 const ProjectSpaceRepoMember = sequelize.define(
   'ProjectSpaceRepoMember',

@@ -1,87 +1,68 @@
 const { BranchProtectionRule, User } = require('../../models');
+const { ensureRepoReadable, ensureRepoCapability } = require('../../services/spaces/repoAccess');
+const {
+  listBranchProtectionRulesForRepo,
+  sanitizeBranchProtectionInput,
+  serializeBranchProtectionRule,
+} = require('../../services/repos/repoGovernance');
 const { getAuthenticatedUserId } = require('../../utils/requestUser');
 
-exports.listBranchProtectionRules = async (req, res) => {
+async function listBranchProtectionRules(req, res) {
   try {
-    const { repoId } = req.params;
+    const readable = await ensureRepoReadable(req.params.repoId, req.user?.userId || null, res);
+    if (!readable) return;
 
-    const rules = await BranchProtectionRule.findAll({
-      where: { repo_id: repoId },
-      include: [
-        {
-          model: User,
-          as: 'creator',
-          attributes: ['id', 'name', 'username', 'github_url'],
-        },
-      ],
-      order: [['created_at', 'ASC']],
-    });
-
+    const rules = await listBranchProtectionRulesForRepo(req.params.repoId);
     res.json(rules);
   } catch (err) {
     console.error('Error listing branch protection rules:', err);
     res.status(500).json({ error: 'Failed to list branch protection rules' });
   }
-};
+}
 
-exports.createBranchProtectionRule = async (req, res) => {
+async function createBranchProtectionRule(req, res) {
   try {
-    const { repoId } = req.params;
-    const userId = getAuthenticatedUserId(req);
-    const {
-      branch_pattern,
-      require_pr,
-      required_approvals,
-      dismiss_stale_reviews,
-      require_status_checks,
-      restrict_pushes,
-      allow_force_push,
-    } = req.body;
+    const manageable = await ensureRepoCapability(req.params.repoId, req.user.userId, res, 'can_manage_rules');
+    if (!manageable) return;
 
-    if (!branch_pattern) {
+    const payload = sanitizeBranchProtectionInput(req.body);
+    if (!payload.branch_pattern) {
       return res.status(400).json({ error: 'branch_pattern is required' });
     }
 
     const [rule, created] = await BranchProtectionRule.findOrCreate({
-      where: { repo_id: repoId, branch_pattern },
+      where: { repo_id: req.params.repoId, branch_pattern: payload.branch_pattern },
       defaults: {
-        require_pr: require_pr || false,
-        required_approvals: required_approvals || 0,
-        dismiss_stale_reviews: dismiss_stale_reviews || false,
-        require_status_checks: require_status_checks || false,
-        restrict_pushes: restrict_pushes || false,
-        allow_force_push: allow_force_push || false,
-        created_by: userId,
+        ...payload,
+        created_by: getAuthenticatedUserId(req),
       },
     });
 
     if (!created) {
-      // Update existing
       await rule.update({
-        require_pr: require_pr ?? rule.require_pr,
-        required_approvals: required_approvals ?? rule.required_approvals,
-        dismiss_stale_reviews: dismiss_stale_reviews ?? rule.dismiss_stale_reviews,
-        require_status_checks: require_status_checks ?? rule.require_status_checks,
-        restrict_pushes: restrict_pushes ?? rule.restrict_pushes,
-        allow_force_push: allow_force_push ?? rule.allow_force_push,
+        ...payload,
       });
     }
 
-    res.json({ rule });
+    const reloaded = await BranchProtectionRule.findByPk(rule.id, {
+      include: [{ model: User, as: 'creator', attributes: ['id', 'name', 'username', 'github_url'], required: false }],
+    });
+
+    res.json({ rule: serializeBranchProtectionRule(reloaded) });
   } catch (err) {
     console.error('Error creating branch protection rule:', err);
     res.status(500).json({ error: 'Failed to save branch protection rule' });
   }
-};
+}
 
-exports.deleteBranchProtectionRule = async (req, res) => {
+async function deleteBranchProtectionRule(req, res) {
   try {
-    const { repoId, ruleId } = req.params;
+    const manageable = await ensureRepoCapability(req.params.repoId, req.user.userId, res, 'can_manage_rules');
+    if (!manageable) return;
 
     const rule = await BranchProtectionRule.findOne({
-      where: { id: ruleId, repo_id: repoId },
+      where: { id: req.params.ruleId, repo_id: req.params.repoId },
     });
-
     if (!rule) {
       return res.status(404).json({ error: 'Rule not found' });
     }
@@ -92,4 +73,10 @@ exports.deleteBranchProtectionRule = async (req, res) => {
     console.error('Error deleting branch protection rule:', err);
     res.status(500).json({ error: 'Failed to delete branch protection rule' });
   }
+}
+
+module.exports = {
+  listBranchProtectionRules,
+  createBranchProtectionRule,
+  deleteBranchProtectionRule,
 };

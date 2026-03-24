@@ -5,6 +5,34 @@ const {
   User,
 } = require('../../models');
 const { getAccessContext } = require('./repoAccess');
+const { resolveRepoPath } = require('../git/gitPath');
+const { listTree } = require('../git/gitShell');
+
+const COMMUNITY_FILE_LABELS = {
+  'README.md': 'README',
+  README: 'README',
+  'CONTRIBUTING.md': 'CONTRIBUTING',
+  CONTRIBUTING: 'CONTRIBUTING',
+  'CODE_OF_CONDUCT.md': 'CODE_OF_CONDUCT',
+  'CODE_OF_CONDUCT.MD': 'CODE_OF_CONDUCT',
+  CODE_OF_CONDUCT: 'CODE_OF_CONDUCT',
+};
+
+async function buildCommunityFiles(repo) {
+  try {
+    const repoPath = await resolveRepoPath(repo.id, repo.space_id);
+    const entries = await listTree(repoPath, repo.default_branch, '');
+    return entries
+      .filter((entry) => entry.type === 'blob' && COMMUNITY_FILE_LABELS[entry.name])
+      .map((entry) => ({
+        key: COMMUNITY_FILE_LABELS[entry.name],
+        path: entry.path,
+        name: entry.name,
+      }));
+  } catch (error) {
+    return [];
+  }
+}
 
 async function serializeAttachment(attachment, userId = null) {
   if (!attachment) return null;
@@ -24,6 +52,7 @@ async function serializeAttachment(attachment, userId = null) {
       repo: {
         ...attachment.repo.toJSON(),
         my_role: access.my_role,
+        community_files: await buildCommunityFiles(attachment.repo),
       },
     };
   }

@@ -10,6 +10,7 @@ const {
   deleteTag,
   getCommitDetail,
 } = require('../../services/git/gitShell');
+const { getMatchingBranchProtectionRule, evaluateDirectBranchUpdate } = require('../../services/repos/repoGovernance');
 
 async function listRepoBranches(req, res) {
   try {
@@ -53,6 +54,17 @@ async function deleteRepoBranch(req, res) {
 
     const name = req.params.name;
     if (!isSafeRef(name)) return res.status(400).json({ error: 'Invalid branch name.' });
+
+    const protectionRule = await getMatchingBranchProtectionRule(result.repo.id, name);
+    const protection = evaluateDirectBranchUpdate({
+      rule: protectionRule,
+      access: result.access,
+      branchName: name,
+      isDeletion: true,
+    });
+    if (!protection.allowed) {
+      return res.status(409).json({ error: protection.blocking_reasons[0] });
+    }
 
     const repoPath = await resolveRepoPath(result.repo.id, result.repo.space_id);
     await deleteBranch(repoPath, name);

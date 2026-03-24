@@ -37,11 +37,29 @@ const BranchProtectionRule = sequelize.define('BranchProtectionRule', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  required_status_contexts: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: [],
+  },
   restrict_pushes: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  push_role_min: {
+    type: DataTypes.ENUM('write', 'maintain', 'admin'),
+    allowNull: false,
+    defaultValue: 'maintain',
+  },
   allow_force_push: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  allow_deletions: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  require_linear_history: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
@@ -61,6 +79,9 @@ const BranchProtectionRule = sequelize.define('BranchProtectionRule', {
     {
       unique: true,
       fields: ['repo_id', 'branch_pattern'],
+    },
+    {
+      fields: ['repo_id'],
     },
   ],
 });

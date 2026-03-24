@@ -9,7 +9,7 @@ const {
   isOwner,
   isMaintainerOrOwner,
 } = require('../../services/spaces/spaceAccess');
-const { getRepoOr404, getAccessContext } = require('../../services/spaces/repoAccess');
+const { getRepoOr404, getAccessContext, ensureRepoCapability } = require('../../services/spaces/repoAccess');
 const { asTrimmedString } = require('../../services/spaces/spaceValidation');
 const { listVisibleAttachments, serializeAttachment } = require('../../services/spaces/spaceAttachmentService');
 
@@ -64,15 +64,45 @@ async function ensureSpaceManageable(spaceId, userId, res) {
 async function attachRepoToSpace(repo, spaceId, userId, options = {}) {
   const { label = null, isPrimary = false } = options;
 
-  if (repo.space_id && repo.space_id !== spaceId) {
-    throw new Error('Repository is already attached to another space.');
-  }
-
   const existing = await ProjectSpaceRepoAttachment.findOne({
     where: { repo_id: repo.id },
   });
+
+  // Allow moving a managed repo between spaces from repo settings.
   if (existing && existing.space_id !== spaceId) {
-    throw new Error('Repository is already attached to another space.');
+    const previousSpaceId = existing.space_id;
+    const wasPrimary = existing.is_primary;
+    const nextPosition = await ProjectSpaceRepoAttachment.count({
+      where: { space_id: spaceId },
+    });
+
+    await existing.update({
+      space_id: spaceId,
+      label: label || existing.label || repo.name,
+      position: nextPosition,
+      is_primary: isPrimary || nextPosition === 0,
+      updated_at: new Date(),
+    });
+
+    await repo.update({
+      space_id: spaceId,
+      updated_at: new Date(),
+    });
+
+    await normalizeAttachmentPositions(previousSpaceId);
+    if (wasPrimary) {
+      await ensurePrimaryAttachment(previousSpaceId);
+    }
+
+    if (isPrimary) {
+      await ensurePrimaryAttachment(spaceId, existing.id);
+    } else {
+      await ensurePrimaryAttachment(spaceId);
+    }
+
+    return existing.reload({
+      include: [{ model: ProjectSpaceRepo, as: 'repo', required: false }],
+    });
   }
 
   const position = await ProjectSpaceRepoAttachment.count({
@@ -320,13 +350,9 @@ async function getRepoAttachment(req, res) {
 async function upsertRepoAttachment(req, res) {
   try {
     const userId = req.user.userId;
-    const repo = await getRepoOr404(req.params.repoId, res);
-    if (!repo) return;
-
-    const access = await getAccessContext(repo, userId);
-    if (!access.isAdmin) {
-      return res.status(403).json({ error: 'Only repository admins can change the attachment.' });
-    }
+    const result = await ensureRepoCapability(req.params.repoId, userId, res, 'can_manage_general');
+    if (!result) return;
+    const { repo } = result;
 
     const spaceId = asTrimmedString(req.body.space_id);
     if (!spaceId) {
@@ -353,13 +379,9 @@ async function upsertRepoAttachment(req, res) {
 async function removeRepoAttachment(req, res) {
   try {
     const userId = req.user.userId;
-    const repo = await getRepoOr404(req.params.repoId, res);
-    if (!repo) return;
-
-    const access = await getAccessContext(repo, userId);
-    if (!access.isAdmin) {
-      return res.status(403).json({ error: 'Only repository admins can detach the repository.' });
-    }
+    const result = await ensureRepoCapability(req.params.repoId, userId, res, 'can_manage_general');
+    if (!result) return;
+    const { repo } = result;
 
     const attachment = await ProjectSpaceRepoAttachment.findOne({
       where: { repo_id: repo.id },

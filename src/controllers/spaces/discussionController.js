@@ -4,7 +4,7 @@ const {
   ensureSpaceReadable,
   getMembership,
   isMaintainerOrOwner,
-  isMember,
+  buildSpaceViewerPermissions,
 } = require('../../services/spaces/spaceAccess');
 const {
   DISCUSSION_CATEGORIES,
@@ -27,9 +27,7 @@ async function createDiscussion(req, res) {
     if (!space) return;
 
     const membership = await getMembership(spaceId, userId);
-    if (!isMember(membership)) {
-      return res.status(403).json({ error: 'Only project contributors can start discussions.' });
-    }
+    const viewerPermissions = buildSpaceViewerPermissions(space, membership, userId);
 
     const title = asTrimmedString(req.body.title);
     const body = asTrimmedString(req.body.body);
@@ -47,8 +45,8 @@ async function createDiscussion(req, res) {
       return res.status(400).json({ error: 'Invalid discussion category.' });
     }
 
-    if (category === 'announcement' && !isMaintainerOrOwner(membership)) {
-      return res.status(403).json({ error: 'Only the space owner or maintainers can post announcements.' });
+    if (!viewerPermissions.can_create_discussion || !viewerPermissions.allowed_discussion_categories.includes(category)) {
+      return res.status(403).json({ error: 'You do not have permission to start this type of discussion.' });
     }
 
     const thread = await ProjectSpaceDiscussion.create({
@@ -72,6 +70,7 @@ async function listDiscussions(req, res) {
     const requesterId = req.user?.userId || null;
     const readableSpace = await ensureSpaceReadable(req.params.spaceId, requesterId, res);
     if (!readableSpace) return;
+    const membership = requesterId ? await getMembership(req.params.spaceId, requesterId) : null;
 
     const { limit, page, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
 
@@ -84,7 +83,13 @@ async function listDiscussions(req, res) {
       distinct: true,
     });
 
-    return res.json({ threads, total: count, page, limit });
+    return res.json({
+      threads,
+      total: count,
+      page,
+      limit,
+      viewer_permissions: buildSpaceViewerPermissions(readableSpace, membership, requesterId),
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch discussions.' });
   }
@@ -97,6 +102,7 @@ async function getDiscussion(req, res) {
     const requesterId = req.user?.userId || null;
     const readableSpace = await ensureSpaceReadable(spaceId, requesterId, res);
     if (!readableSpace) return;
+    const membership = requesterId ? await getMembership(spaceId, requesterId) : null;
 
     const thread = await ProjectSpaceDiscussion.findOne({
       where: { id: threadId, space_id: spaceId },
@@ -121,7 +127,10 @@ async function getDiscussion(req, res) {
       return res.status(404).json({ error: 'Discussion thread not found.' });
     }
 
-    return res.json({ thread });
+    return res.json({
+      thread,
+      viewer_permissions: buildSpaceViewerPermissions(readableSpace, membership, requesterId),
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch discussion thread.' });
   }
@@ -136,9 +145,7 @@ async function addDiscussionReply(req, res) {
     if (!space) return;
 
     const membership = await getMembership(spaceId, userId);
-    if (!isMember(membership)) {
-      return res.status(403).json({ error: 'Only project contributors can reply.' });
-    }
+    const viewerPermissions = buildSpaceViewerPermissions(space, membership, userId);
 
     const thread = await ProjectSpaceDiscussion.findOne({
       where: { id: threadId, space_id: spaceId },
@@ -146,6 +153,10 @@ async function addDiscussionReply(req, res) {
 
     if (!thread) {
       return res.status(404).json({ error: 'Discussion thread not found.' });
+    }
+
+    if (!viewerPermissions.can_reply || !viewerPermissions.allowed_discussion_categories.includes(thread.category)) {
+      return res.status(403).json({ error: 'You do not have permission to reply in this discussion.' });
     }
 
     const body = asTrimmedString(req.body.body);

@@ -11,7 +11,7 @@ const { slugify, asTrimmedString, isAllowedValue, REPO_VISIBILITIES } = require(
 const { getRepoPath, resolveRepoPath } = require('../../services/git/gitPath');
 const { initializeBareRepository, setDefaultBranch, isSafeRef } = require('../../services/git/gitShell');
 const { serializeRepo } = require('../repos/repositoryController');
-const { getAccessContext, ensureLegacyRepoAdmin, ensureLegacyRepoReadable } = require('../../services/spaces/repoAccess');
+const { getAccessContext, ensureLegacyRepoOwner, ensureLegacyRepoReadable } = require('../../services/spaces/repoAccess');
 
 async function listRepos(req, res) {
   try {
@@ -158,7 +158,7 @@ async function getRepo(req, res) {
 
 async function updateRepo(req, res) {
   try {
-    const result = await ensureLegacyRepoAdmin(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await ensureLegacyRepoOwner(req.params.spaceId, req.params.repoId, req.user.userId, res);
     if (!result) return;
 
     const { repo } = result;
@@ -243,7 +243,7 @@ async function updateRepo(req, res) {
 
 async function archiveRepo(req, res) {
   try {
-    const result = await ensureLegacyRepoAdmin(req.params.spaceId, req.params.repoId, req.user.userId, res);
+    const result = await ensureLegacyRepoOwner(req.params.spaceId, req.params.repoId, req.user.userId, res);
     if (!result) return;
 
     await result.repo.update({

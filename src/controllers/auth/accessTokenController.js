@@ -2,6 +2,7 @@ const {
   listAccessTokensForUser,
   createAccessTokenForUser,
   revokeAccessTokenForUser,
+  normalizeScopes,
 } = require('../../services/auth/accessTokens');
 
 function parseExpiresAt(value) {
@@ -38,10 +39,16 @@ async function createAccessToken(req, res) {
       return res.status(400).json({ error: 'expires_at must be a valid date.' });
     }
 
+    const scopes = normalizeScopes(req.body.scopes);
+    if (Array.isArray(req.body.scopes) && scopes.length === 0) {
+      return res.status(400).json({ error: 'Select at least one access-token scope.' });
+    }
+
     const { token, plaintext } = await createAccessTokenForUser(
       req.user.userId,
       name,
-      expiresAt
+      expiresAt,
+      scopes
     );
 
     return res.status(201).json({

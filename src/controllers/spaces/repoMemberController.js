@@ -2,14 +2,14 @@ const {
   ProjectSpaceRepoMember,
   User,
 } = require('../../models');
-const { asTrimmedString } = require('../../services/spaces/spaceValidation');
+const { asTrimmedString, REPO_MEMBER_ROLES } = require('../../services/spaces/spaceValidation');
 const { ensureRepoAdmin, ensureLegacyRepoAdmin, ensureRepoMemberCandidate } = require('../../services/spaces/repoAccess');
 const {
   buildEntityRef,
   emitUserNotification,
 } = require('../../services/notifications/notificationService');
 
-async function loadAdminRepo(req, res) {
+async function loadOwnerRepo(req, res) {
   if (req.params.spaceId) {
     return ensureLegacyRepoAdmin(req.params.spaceId, req.params.repoId, req.user.userId, res);
   }
@@ -19,7 +19,7 @@ async function loadAdminRepo(req, res) {
 
 async function listRepoMembers(req, res) {
   try {
-    const result = await loadAdminRepo(req, res);
+    const result = await loadOwnerRepo(req, res);
     if (!result) return;
 
     const members = await ProjectSpaceRepoMember.findAll({
@@ -36,15 +36,21 @@ async function listRepoMembers(req, res) {
 
 async function upsertRepoMember(req, res) {
   try {
-    const result = await loadAdminRepo(req, res);
+    const result = await loadOwnerRepo(req, res);
     if (!result) return;
 
     const role = asTrimmedString(req.body.role);
-    if (role !== 'read' && role !== 'write') {
-      return res.status(400).json({ error: 'Role must be read or write.' });
+    if (!REPO_MEMBER_ROLES.has(role)) {
+      return res.status(400).json({ error: 'Invalid repository role.' });
     }
 
-    const candidate = await ensureRepoMemberCandidate(result.repo, req.params.userId, res);
+    if (role === 'admin' && result.repo.space_id) {
+      return res.status(400).json({ error: 'Admin can only be granted directly on personal repositories.' });
+    }
+
+    const candidate = await ensureRepoMemberCandidate(result.repo, req.params.userId, res, {
+      allowAdmin: !result.repo.space_id,
+    });
     if (!candidate) return;
 
     const [member, created] = await ProjectSpaceRepoMember.findOrCreate({
@@ -96,10 +102,12 @@ async function upsertRepoMember(req, res) {
 
 async function removeRepoMember(req, res) {
   try {
-    const result = await loadAdminRepo(req, res);
+    const result = await loadOwnerRepo(req, res);
     if (!result) return;
 
-    const candidate = await ensureRepoMemberCandidate(result.repo, req.params.userId, res);
+    const candidate = await ensureRepoMemberCandidate(result.repo, req.params.userId, res, {
+      allowAdmin: !result.repo.space_id,
+    });
     if (!candidate) return;
 
     await ProjectSpaceRepoMember.destroy({

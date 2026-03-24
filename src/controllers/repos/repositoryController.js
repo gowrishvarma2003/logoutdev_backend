@@ -13,10 +13,11 @@ const {
   getSpaceOr404,
   getMembership,
   isMaintainerOrOwner,
+  buildSpaceViewerPermissions,
 } = require('../../services/spaces/spaceAccess');
 const {
   getAccessContext,
-  ensureRepoAdmin,
+  ensureRepoCapability,
   ensureRepoReadable,
 } = require('../../services/spaces/repoAccess');
 const {
@@ -26,6 +27,7 @@ const {
   REPO_VISIBILITIES,
 } = require('../../services/spaces/spaceValidation');
 const { parsePagination } = require('../../services/spaces/pagination');
+const { getMatchingBranchProtectionRule } = require('../../services/repos/repoGovernance');
 const { getRepoPath, resolveRepoPath } = require('../../services/git/gitPath');
 const { initializeBareRepository, setDefaultBranch, listTree, isSafeRef } = require('../../services/git/gitShell');
 
@@ -65,20 +67,43 @@ async function buildCommunityFiles(repo) {
   }
 }
 
+function buildCollaborationHome(repo, access) {
+  if (!repo.space || !repo.space_id) {
+    return {
+      type: 'none',
+      can_contribute: false,
+      can_start_discussion: false,
+    };
+  }
+
+  const viewerPermissions = buildSpaceViewerPermissions(repo.space, access.membership, access.user_id);
+
+  return {
+    type: 'space',
+    space_id: repo.space.id,
+    href: `/spaces/${repo.space.id}/discussions`,
+    can_contribute: viewerPermissions.can_reply || viewerPermissions.can_manage_discussions,
+    can_start_discussion: viewerPermissions.can_create_discussion,
+  };
+}
+
 async function serializeRepo(repo, userId = null, options = {}) {
-  const { includeCommunityFiles = false } = options;
+  const { includeCommunityFiles = false, includeGovernance = false } = options;
   const access = await getAccessContext(repo, userId);
   const [
     starCount,
     watcherCount,
     forkCount,
+    directCollaboratorCount,
     starRecord,
     watchRecord,
     forkRelation,
+    defaultBranchRule,
   ] = await Promise.all([
     RepoStar.count({ where: { repo_id: repo.id } }),
     RepoWatch.count({ where: { repo_id: repo.id } }),
     RepoFork.count({ where: { source_repo_id: repo.id } }),
+    ProjectSpaceRepoMember.count({ where: { repo_id: repo.id } }),
     userId ? RepoStar.findOne({ where: { repo_id: repo.id, user_id: userId }, attributes: ['id'] }) : Promise.resolve(null),
     userId ? RepoWatch.findOne({ where: { repo_id: repo.id, user_id: userId }, attributes: ['id', 'level'] }) : Promise.resolve(null),
     RepoFork.findOne({
@@ -94,13 +119,29 @@ async function serializeRepo(repo, userId = null, options = {}) {
         },
       ],
     }),
+    includeGovernance ? getMatchingBranchProtectionRule(repo.id, repo.default_branch) : Promise.resolve(null),
   ]);
 
   return {
     ...repo.toJSON(),
     my_role: access.my_role,
+    effective_role: access.effective_role,
+    inherited_role: access.inherited_role,
+    direct_role: access.direct_role,
+    is_outside_collaborator: access.is_outside_collaborator,
+    permissions: access.permissions,
+    can_read: access.permissions.can_read,
+    can_push: access.permissions.can_push,
+    can_open_pr: access.permissions.can_open_pr,
+    can_review: access.permissions.can_review,
+    can_merge: access.permissions.can_merge,
+    can_manage_rules: access.permissions.can_manage_rules,
+    can_manage_access: access.permissions.can_manage_access,
+    can_archive: access.permissions.can_archive,
     attached_space: buildAttachedSpace(repo),
+    collaboration_home: buildCollaborationHome(repo, access),
     is_attached: Boolean(repo.space_id),
+    collaborator_count: directCollaboratorCount,
     star_count: starCount,
     watcher_count: watcherCount,
     fork_count: forkCount,
@@ -119,6 +160,14 @@ async function serializeRepo(repo, userId = null, options = {}) {
                 username: forkRelation.source_repo.owner.username,
               }
             : null,
+        }
+      : null,
+    protected_default_branch: defaultBranchRule
+      ? {
+          branch_pattern: defaultBranchRule.branch_pattern,
+          require_pr: defaultBranchRule.require_pr,
+          required_approvals: defaultBranchRule.required_approvals,
+          require_status_checks: defaultBranchRule.require_status_checks,
         }
       : null,
     community_files: includeCommunityFiles ? await buildCommunityFiles(repo) : undefined,
@@ -298,7 +347,7 @@ async function createRepository(req, res) {
           ],
         }),
         userId,
-        { includeCommunityFiles: true }
+        { includeCommunityFiles: true, includeGovernance: true }
       ),
     });
   } catch (error) {
@@ -316,7 +365,7 @@ async function getRepository(req, res) {
     if (!result) return;
 
     return res.json({
-      repo: await serializeRepo(result.repo, requesterId, { includeCommunityFiles: true }),
+      repo: await serializeRepo(result.repo, requesterId, { includeCommunityFiles: true, includeGovernance: true }),
     });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch repository.' });
@@ -325,7 +374,7 @@ async function getRepository(req, res) {
 
 async function updateRepository(req, res) {
   try {
-    const result = await ensureRepoAdmin(req.params.repoId, req.user.userId, res);
+    const result = await ensureRepoCapability(req.params.repoId, req.user.userId, res, 'can_manage_general');
     if (!result) return;
 
     const { repo } = result;
@@ -387,7 +436,7 @@ async function updateRepository(req, res) {
           ],
         }),
         req.user.userId,
-        { includeCommunityFiles: true }
+        { includeCommunityFiles: true, includeGovernance: true }
       ),
     });
   } catch (error) {
@@ -397,7 +446,7 @@ async function updateRepository(req, res) {
 
 async function archiveRepository(req, res) {
   try {
-    const result = await ensureRepoAdmin(req.params.repoId, req.user.userId, res);
+    const result = await ensureRepoCapability(req.params.repoId, req.user.userId, res, 'can_archive');
     if (!result) return;
 
     await result.repo.update({

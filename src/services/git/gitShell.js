@@ -1,6 +1,7 @@
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { ensureRepoParentDirectory } = require('./gitPath');
+const { ensureRepositoryHooks } = require('./gitHooks');
 
 const execFileAsync = promisify(execFile);
 const README_CANDIDATES = ['README.md', 'README', 'readme.md', 'Readme.md'];
@@ -44,10 +45,39 @@ async function execGit(args, options = {}) {
   }
 }
 
+async function hashBlobInBareRepo(repoPath, content) {
+  const { spawn } = require('child_process');
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn('git', ['--git-dir', repoPath, 'hash-object', '-w', '--stdin']);
+    let out = '';
+    let err = '';
+
+    proc.stdout.on('data', (chunk) => {
+      out += chunk;
+    });
+    proc.stderr.on('data', (chunk) => {
+      err += chunk;
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        const error = new Error(err.trim() || 'hash-object failed');
+        error.gitStderr = err;
+        reject(error);
+        return;
+      }
+      resolve(out.trim());
+    });
+    proc.stdin.end(content);
+  });
+}
+
 async function initializeBareRepository(repoPath, defaultBranch = 'main') {
   await ensureRepoParentDirectory();
   await execGit(['init', '--bare', repoPath]);
   await execGit(['--git-dir', repoPath, 'symbolic-ref', 'HEAD', `refs/heads/${defaultBranch}`]);
+  await ensureRepositoryHooks(repoPath);
 }
 
 async function setDefaultBranch(repoPath, defaultBranch) {
@@ -194,6 +224,7 @@ async function listCommits(repoPath, ref, commitPath = '', page = 1, limit = 20)
   const output = await execGit(args);
   return String(output)
     .split('\x1e')
+    .map((chunk) => chunk.trim())
     .filter(Boolean)
     .map((chunk) => {
       const [oid, short_oid, message, author_name, author_email, authored_at] = chunk.split('\x1f');
@@ -399,31 +430,12 @@ async function writeFileContent(repoPath, ref, filePath, content, message, autho
 
   const branchRef = `refs/heads/${ref}`;
 
-  // Hash the new content as a blob
-  const blobOid = String(
-    await execGit(['--git-dir', repoPath, 'hash-object', '-w', '--stdin'], {
-      input: content,
-    })
-  ).trim();
-
   // If we need to pass content via stdin, use spawn instead
   const { execFile: execFileCb } = require('child_process');
   const { promisify } = require('util');
   const execFileP = promisify(execFileCb);
 
-  // Hash via pipe
-  const { spawn } = require('child_process');
-  const hashBlob = await new Promise((resolve, reject) => {
-    const proc = spawn('git', ['--git-dir', repoPath, 'hash-object', '-w', '--stdin']);
-    let out = '';
-    proc.stdout.on('data', (d) => { out += d; });
-    proc.on('error', reject);
-    proc.on('close', (code) => {
-      if (code !== 0) return reject(new Error('hash-object failed'));
-      resolve(out.trim());
-    });
-    proc.stdin.end(content);
-  });
+  const hashBlob = await hashBlobInBareRepo(repoPath, content);
 
   // Get the current tree
   let parentCommit = null;
@@ -460,9 +472,8 @@ async function writeFileContent(repoPath, ref, filePath, content, message, autho
     ], { env: gitEnv });
 
     // Write the tree
-    const newTree = String(
-      await execFileP('git', ['write-tree'], { env: gitEnv })
-    ).stdout.trim();
+    const { stdout: newTreeStdout } = await execFileP('git', ['write-tree'], { env: gitEnv });
+    const newTree = String(newTreeStdout).trim();
 
     // Create the commit
     const commitArgs = ['commit-tree', newTree, '-m', message];
@@ -470,7 +481,6 @@ async function writeFileContent(repoPath, ref, filePath, content, message, autho
       commitArgs.push('-p', parentCommit);
     }
 
-    const authorStr = `${author.name} <${author.email}>`;
     const commitEnv = {
       ...gitEnv,
       GIT_AUTHOR_NAME: author.name,
@@ -479,9 +489,8 @@ async function writeFileContent(repoPath, ref, filePath, content, message, autho
       GIT_COMMITTER_EMAIL: author.email,
     };
 
-    const newCommit = String(
-      await execFileP('git', commitArgs, { env: commitEnv })
-    ).stdout.trim();
+    const { stdout: newCommitStdout } = await execFileP('git', commitArgs, { env: commitEnv });
+    const newCommit = String(newCommitStdout).trim();
 
     // Update the branch ref
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
@@ -522,9 +531,8 @@ async function deleteFileByPath(repoPath, ref, filePath, message, author) {
     await execFileP('git', ['read-tree', baseTree], { env: gitEnv });
     await execFileP('git', ['update-index', '--remove', normalizedPath], { env: gitEnv });
 
-    const newTree = String(
-      await execFileP('git', ['write-tree'], { env: gitEnv })
-    ).stdout.trim();
+    const { stdout: newTreeStdout } = await execFileP('git', ['write-tree'], { env: gitEnv });
+    const newTree = String(newTreeStdout).trim();
 
     const commitEnv = {
       ...gitEnv,
@@ -534,9 +542,12 @@ async function deleteFileByPath(repoPath, ref, filePath, message, author) {
       GIT_COMMITTER_EMAIL: author.email,
     };
 
-    const newCommit = String(
-      await execFileP('git', ['commit-tree', newTree, '-p', parentCommit, '-m', message], { env: commitEnv })
-    ).stdout.trim();
+    const { stdout: newCommitStdout } = await execFileP(
+      'git',
+      ['commit-tree', newTree, '-p', parentCommit, '-m', message],
+      { env: commitEnv }
+    );
+    const newCommit = String(newCommitStdout).trim();
 
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
 
@@ -551,6 +562,70 @@ async function deleteFileByPath(repoPath, ref, filePath, message, author) {
 async function forkRepository(sourceRepoPath, destRepoPath) {
   await ensureRepoParentDirectory();
   await execGit(['clone', '--bare', sourceRepoPath, destRepoPath]);
+  await ensureRepositoryHooks(destRepoPath);
+}
+
+async function fetchRefIntoRepo(targetRepoPath, sourceRepoPath, sourceRef, destRef) {
+  if (!isSafeRef(sourceRef) || !isSafeRef(destRef)) throw new Error('Invalid ref.');
+  await execGit([
+    '--git-dir', targetRepoPath,
+    'fetch',
+    '--no-tags',
+    sourceRepoPath,
+    `${sourceRef}:${destRef}`,
+  ], { maxBuffer: 20 * 1024 * 1024 });
+  return destRef;
+}
+
+async function compareRefs(repoPath, base, head) {
+  if (!isSafeRef(base) || !isSafeRef(head)) throw new Error('Invalid ref.');
+
+  const output = await execGit([
+    '--git-dir', repoPath,
+    'rev-list',
+    '--left-right',
+    '--count',
+    `${base}...${head}`,
+  ]);
+
+  const [behindBy, aheadBy] = String(output).trim().split(/\s+/).map((value) => Number(value) || 0);
+  return {
+    ahead_by: aheadBy,
+    behind_by: behindBy,
+  };
+}
+
+async function getMergeability(repoPath, base, head) {
+  if (!isSafeRef(base) || !isSafeRef(head)) throw new Error('Invalid ref.');
+
+  try {
+    const output = await execGit([
+      '--git-dir', repoPath,
+      'merge-tree',
+      '--write-tree',
+      base,
+      head,
+    ]);
+    const lines = String(output).trim().split('\n').filter(Boolean);
+    if (lines.length === 1 && /^[0-9a-f]{40}$/.test(lines[0])) {
+      return { state: 'clean' };
+    }
+    return { state: 'dirty' };
+  } catch (error) {
+    const stdout = String(error.gitStdout || '').trim();
+    if (stdout) {
+      const lines = stdout.split('\n').filter(Boolean);
+      if (lines.length === 1 && /^[0-9a-f]{40}$/.test(lines[0])) {
+        return { state: 'clean' };
+      }
+      return { state: 'dirty' };
+    }
+
+    return {
+      state: 'unknown',
+      error: error.message || 'Unable to determine mergeability.',
+    };
+  }
 }
 
 // ─── Diff between refs ──────────────────────────────────────────────
@@ -631,34 +706,25 @@ async function listCommitsBetween(repoPath, base, head) {
 
 async function mergeBranches(repoPath, baseBranch, topicBranch, options = {}) {
   if (!isSafeRef(baseBranch) || !isSafeRef(topicBranch)) throw new Error('Invalid ref limit');
-  
+  const baseRef = baseBranch.startsWith('refs/') ? baseBranch : `refs/heads/${baseBranch}`;
+  const topicRef = topicBranch.startsWith('refs/') ? topicBranch : `refs/heads/${topicBranch}`;
+
   const { authorName = 'System', authorEmail = 'system@logout.dev', commitMessage = `Merge branch '${topicBranch}' into '${baseBranch}'` } = options;
 
-  let mergeOutput;
-  try {
-    // Requires git >= 2.38
-    mergeOutput = await execGit(['--git-dir', repoPath, 'merge-tree', '--write-tree', `refs/heads/${baseBranch}`, `refs/heads/${topicBranch}`]);
-  } catch (err) {
-    if (err.gitStdout) {
-      mergeOutput = err.gitStdout;
-    } else {
-      throw new Error('Merge tree failed: ' + err.message);
-    }
-  }
-
-  const lines = mergeOutput.split('\n');
-  const treeOid = lines[0].trim();
-
-  // If there are more lines (other than empty), there might be conflicts
-  if (lines.length > 2 || (err => err.code === 1)) {
-    // For now we will reject merges that have conflicts
-    // We could parse conflicts, but for Phase 2 MVP, just throw
+  const mergeability = await getMergeability(repoPath, baseRef, topicRef);
+  if (mergeability.state === 'dirty') {
     throw new Error('Merge conflict detected. Cannot merge automatically.');
   }
+  if (mergeability.state === 'unknown') {
+    throw new Error(mergeability.error || 'Unable to determine mergeability.');
+  }
+
+  const mergeOutput = await execGit(['--git-dir', repoPath, 'merge-tree', '--write-tree', baseRef, topicRef]);
+  const treeOid = String(mergeOutput).trim().split('\n')[0].trim();
 
   // Find commit IDs for the parents
-  const baseCommitId = (await execGit(['--git-dir', repoPath, 'rev-parse', `refs/heads/${baseBranch}`])).trim();
-  const topicCommitId = (await execGit(['--git-dir', repoPath, 'rev-parse', `refs/heads/${topicBranch}`])).trim();
+  const baseCommitId = (await execGit(['--git-dir', repoPath, 'rev-parse', baseRef])).trim();
+  const topicCommitId = (await execGit(['--git-dir', repoPath, 'rev-parse', topicRef])).trim();
 
   // Write the merge commit
   const env = {
@@ -681,7 +747,7 @@ async function mergeBranches(repoPath, baseBranch, topicBranch, options = {}) {
   const newCommitId = commitResult.stdout.trim();
 
   // Update the base branch to point to new commit
-  await execGit(['--git-dir', repoPath, 'update-ref', `refs/heads/${baseBranch}`, newCommitId]);
+  await execGit(['--git-dir', repoPath, 'update-ref', baseRef, newCommitId]);
 
   return newCommitId;
 }
@@ -706,6 +772,9 @@ module.exports = {
   writeFileContent,
   deleteFileByPath,
   forkRepository,
+  fetchRefIntoRepo,
+  compareRefs,
+  getMergeability,
   getDiffBetweenRefs,
   listCommitsBetween,
   mergeBranches,

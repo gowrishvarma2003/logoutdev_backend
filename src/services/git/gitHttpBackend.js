@@ -39,6 +39,7 @@ function streamGitHttpBackend(req, res, options) {
       CONTENT_LENGTH: req.headers['content-length'] || '',
       REMOTE_USER: options.remoteUser || '',
       REMOTE_ADDR: req.ip || req.socket.remoteAddress || '',
+      ...(options.extraEnv || {}),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

@@ -233,6 +233,8 @@ User.hasMany(RepoRelease, { foreignKey: 'created_by', as: 'repo_releases' });
 // Repositories ↔ Pull Requests
 ProjectSpaceRepo.hasMany(PullRequest, { foreignKey: 'repo_id', as: 'pull_requests' });
 PullRequest.belongsTo(ProjectSpaceRepo, { foreignKey: 'repo_id', as: 'repo' });
+ProjectSpaceRepo.hasMany(PullRequest, { foreignKey: 'source_repo_id', as: 'fork_pull_requests' });
+PullRequest.belongsTo(ProjectSpaceRepo, { foreignKey: 'source_repo_id', as: 'source_repo' });
 PullRequest.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
 PullRequest.belongsTo(User, { foreignKey: 'merged_by', as: 'merger' });
 User.hasMany(PullRequest, { foreignKey: 'author_id', as: 'authored_prs' });
@@ -673,6 +675,125 @@ async function ensureRepoColumns() {
   });
   await addIndexSafe('project_space_repos', ['visibility'], {
     name: 'project_space_repos_visibility',
+  });
+}
+
+async function ensureRepoMemberColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await describeTableSafe('project_space_repo_members');
+  if (!table) return;
+
+  await ensureEnumValue('enum_project_space_repo_members_role', 'triage');
+  await ensureEnumValue('enum_project_space_repo_members_role', 'maintain');
+  await ensureEnumValue('enum_project_space_repo_members_role', 'admin');
+
+  if (table.role?.defaultValue === "'write'::enum_project_space_repo_members_role") {
+    await queryInterface.changeColumn('project_space_repo_members', 'role', {
+      type: DataTypes.ENUM('read', 'triage', 'write', 'maintain', 'admin'),
+      allowNull: false,
+      defaultValue: 'read',
+    });
+  }
+}
+
+async function ensureAccessTokenColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await describeTableSafe('user_access_tokens');
+  if (!table) return;
+
+  if (!table.scopes) {
+    await queryInterface.addColumn('user_access_tokens', 'scopes', {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: ['git:read', 'git:write'],
+    });
+  }
+
+  await sequelize.query(`
+    UPDATE user_access_tokens
+    SET scopes = '["git:read","git:write"]'::jsonb
+    WHERE scopes IS NULL
+  `);
+}
+
+async function ensureBranchProtectionColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await describeTableSafe('branch_protection_rules');
+  if (!table) return;
+
+  if (!table.required_status_contexts) {
+    await queryInterface.addColumn('branch_protection_rules', 'required_status_contexts', {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
+    });
+  }
+
+  if (!table.push_role_min) {
+    await queryInterface.addColumn('branch_protection_rules', 'push_role_min', {
+      type: DataTypes.ENUM('write', 'maintain', 'admin'),
+      allowNull: false,
+      defaultValue: 'maintain',
+    });
+  }
+
+  if (!table.allow_deletions) {
+    await queryInterface.addColumn('branch_protection_rules', 'allow_deletions', {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    });
+  }
+
+  if (!table.require_linear_history) {
+    await queryInterface.addColumn('branch_protection_rules', 'require_linear_history', {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    });
+  }
+
+  await sequelize.query(`
+    UPDATE branch_protection_rules
+    SET required_status_contexts = '[]'::jsonb
+    WHERE required_status_contexts IS NULL
+  `);
+}
+
+async function ensurePullRequestColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await describeTableSafe('pull_requests');
+  if (!table) return;
+
+  if (!table.source_repo_id) {
+    await queryInterface.addColumn('pull_requests', 'source_repo_id', {
+      type: DataTypes.UUID,
+      allowNull: true,
+    });
+  }
+
+  if (!table.status_checks) {
+    await queryInterface.addColumn('pull_requests', 'status_checks', {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
+    });
+  }
+
+  await sequelize.query(`
+    UPDATE pull_requests
+    SET source_repo_id = repo_id
+    WHERE source_repo_id IS NULL
+  `);
+
+  await sequelize.query(`
+    UPDATE pull_requests
+    SET status_checks = '[]'::jsonb
+    WHERE status_checks IS NULL
+  `);
+
+  await addIndexSafe('pull_requests', ['source_repo_id'], {
+    name: 'pull_requests_source_repo_id',
   });
 }
 
@@ -1153,6 +1274,10 @@ async function initModels(options = {}) {
   await runInitStep('ensureUserProfileColumns', () => ensureUserProfileColumns());
   await runInitStep('ensureSpaceColumns', () => ensureSpaceColumns());
   await runInitStep('ensureRepoColumns', () => ensureRepoColumns());
+  await runInitStep('ensureRepoMemberColumns', () => ensureRepoMemberColumns());
+  await runInitStep('ensureAccessTokenColumns', () => ensureAccessTokenColumns());
+  await runInitStep('ensureBranchProtectionColumns', () => ensureBranchProtectionColumns());
+  await runInitStep('ensurePullRequestColumns', () => ensurePullRequestColumns());
   await runInitStep('ensureWorkItemColumns', () => ensureWorkItemColumns());
   await runInitStep('ensureDiscussionColumns', () => ensureDiscussionColumns());
   await runInitStep('ensureUpdateColumns', () => ensureUpdateColumns());

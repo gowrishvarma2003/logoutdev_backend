@@ -4,6 +4,10 @@ const {
   User,
 } = require('../../models');
 
+const PUBLIC_SPACE_DISCUSSION_CATEGORIES = ['idea', 'question'];
+const CONTRIBUTOR_DISCUSSION_CATEGORIES = ['idea', 'decision', 'question', 'blocked', 'retrospective'];
+const MAINTAINER_DISCUSSION_CATEGORIES = [...CONTRIBUTOR_DISCUSSION_CATEGORIES, 'announcement'];
+
 async function getSpaceOr404(spaceId, res) {
   const space = await ProjectSpace.findByPk(spaceId);
   if (!space) {
@@ -33,6 +37,43 @@ function isMaintainerOrOwner(membership) {
 
 function isMember(membership) {
   return Boolean(membership);
+}
+
+function getAllowedDiscussionCategories(space, membership, userId) {
+  if (!space || !userId) return [];
+  if (isOwner(space, userId) || isMaintainerOrOwner(membership)) {
+    return MAINTAINER_DISCUSSION_CATEGORIES;
+  }
+  if (isMember(membership)) {
+    return CONTRIBUTOR_DISCUSSION_CATEGORIES;
+  }
+  if (space.visibility === 'public') {
+    return PUBLIC_SPACE_DISCUSSION_CATEGORIES;
+  }
+  return [];
+}
+
+function buildSpaceViewerPermissions(space, membership, userId) {
+  const canRead = Boolean(
+    space
+    && (
+      space.visibility === 'public'
+      || isOwner(space, userId)
+      || isMember(membership)
+    )
+  );
+  const allowedDiscussionCategories = canRead
+    ? getAllowedDiscussionCategories(space, membership, userId)
+    : [];
+  const canManageDiscussions = Boolean(space && (isOwner(space, userId) || isMaintainerOrOwner(membership)));
+
+  return {
+    can_read: canRead,
+    can_reply: allowedDiscussionCategories.length > 0,
+    can_create_discussion: allowedDiscussionCategories.length > 0,
+    allowed_discussion_categories: allowedDiscussionCategories,
+    can_manage_discussions: canManageDiscussions,
+  };
 }
 
 async function ensureSpaceReadable(spaceId, userId, res) {
@@ -68,5 +109,7 @@ module.exports = {
   isOwner,
   isMaintainerOrOwner,
   isMember,
+  getAllowedDiscussionCategories,
+  buildSpaceViewerPermissions,
   ensureSpaceReadable,
 };

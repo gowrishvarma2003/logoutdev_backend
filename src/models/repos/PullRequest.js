@@ -11,7 +11,16 @@ const PullRequest = sequelize.define('PullRequest', {
     type: DataTypes.UUID,
     allowNull: false,
     references: {
-      model: 'Repositories',
+      model: 'project_space_repos',
+      key: 'id',
+    },
+    onDelete: 'CASCADE',
+  },
+  source_repo_id: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    references: {
+      model: 'project_space_repos',
       key: 'id',
     },
     onDelete: 'CASCADE',
@@ -53,6 +62,11 @@ const PullRequest = sequelize.define('PullRequest', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
   },
+  status_checks: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: [],
+  },
   merged_by: {
     type: DataTypes.UUID,
     allowNull: true,
@@ -79,20 +93,11 @@ const PullRequest = sequelize.define('PullRequest', {
     },
     {
       fields: ['repo_id', 'status'],
+    },
+    {
+      fields: ['source_repo_id'],
     }
   ],
-});
-
-// Hook to auto-increment the PR number per repo
-PullRequest.beforeValidate(async (pr, options) => {
-  if (pr.isNewRecord && !pr.number) {
-    const lastPr = await PullRequest.findOne({
-      where: { repo_id: pr.repo_id },
-      order: [['number', 'DESC']],
-      transaction: options.transaction,
-    });
-    pr.number = lastPr ? lastPr.number + 1 : 1;
-  }
 });
 
 module.exports = PullRequest;

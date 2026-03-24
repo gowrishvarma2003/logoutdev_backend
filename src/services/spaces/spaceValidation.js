@@ -11,7 +11,7 @@ const UPDATE_TYPES = new Set(['milestone', 'devlog', 'release', 'blocker', 'week
 const ISSUE_STATUSES = new Set(['open', 'triaged', 'in-progress', 'resolved', 'closed']);
 const ISSUE_PRIORITIES = new Set(['low', 'medium', 'high', 'critical']);
 const WORK_ITEM_TYPES = new Set(['task', 'bug', 'feature', 'docs', 'research']);
-const REPO_MEMBER_ROLES = new Set(['read', 'write']);
+const REPO_MEMBER_ROLES = new Set(['read', 'triage', 'write', 'maintain', 'admin']);
 
 function slugify(value) {
   return String(value || '')
