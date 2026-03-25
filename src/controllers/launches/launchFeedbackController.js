@@ -1,4 +1,9 @@
-const { Launch, LaunchFeedbackItem, LaunchFeedbackComment } = require('../../models');
+const {
+  Launch,
+  LaunchBetaRegistration,
+  LaunchFeedbackItem,
+  LaunchFeedbackComment,
+} = require('../../models');
 const { parsePagination } = require('../../services/spaces/pagination');
 const { asTrimmedString } = require('../../services/spaces/spaceValidation');
 const { getLaunchOr404, isLaunchOwner } = require('../../services/launches/launchAccess');
@@ -7,6 +12,7 @@ const {
   validateFeedbackCommentInput,
 } = require('../../services/launches/launchValidation');
 const { getFeedbackInclude, refreshLaunchCounts } = require('../../services/launches/launchQueries');
+const { canCreateFeedback, canViewFeedbackItem } = require('../../services/launches/launchPhase');
 const {
   buildEntityRef,
   emitUserNotification,
@@ -25,21 +31,40 @@ async function listLaunchFeedback(req, res) {
     const type = asTrimmedString(req.query.type);
     const status = asTrimmedString(req.query.status);
     const { limit, page, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const viewerId = req.user?.userId || null;
+    const isOwner = isLaunchOwner(launch, viewerId);
+    const registration = viewerId
+      ? await LaunchBetaRegistration.findOne({
+        where: { launch_id: launch.id, user_id: viewerId },
+        attributes: ['status'],
+      })
+      : null;
+    const isApprovedBetaUser = registration?.status === 'approved';
 
-    const where = { launch_id: launch.id };
-    if (type) where.type = type;
-    if (status) where.status = status;
-
-    const { count, rows } = await LaunchFeedbackItem.findAndCountAll({
-      where,
+    const rows = await LaunchFeedbackItem.findAll({
+      where: { launch_id: launch.id },
       include: getFeedbackInclude(),
       order: [['updated_at', 'DESC'], ['created_at', 'DESC']],
-      limit,
-      offset,
-      distinct: true,
     });
 
-    return res.json({ feedback: rows, total: count, page, limit });
+    const filtered = rows.filter((item) => {
+      if (type && item.type !== type) return false;
+      if (status && item.status !== status) return false;
+      return canViewFeedbackItem({
+        item,
+        launchPhase: launch.launch_phase,
+        viewerId,
+        isOwner,
+        isApprovedBetaUser,
+      });
+    });
+
+    return res.json({
+      feedback: filtered.slice(offset, offset + limit),
+      total: filtered.length,
+      page,
+      limit,
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch launch feedback.' });
   }
@@ -57,6 +82,22 @@ async function createLaunchFeedback(req, res) {
       return res.status(400).json({ error: 'Builders cannot create feedback items on their own launch.' });
     }
 
+    const registration = launch.launch_phase === 'beta'
+      ? await LaunchBetaRegistration.findOne({
+        where: { launch_id: launch.id, user_id: req.user.userId },
+        attributes: ['status'],
+      })
+      : null;
+    const isApprovedBetaUser = registration?.status === 'approved';
+
+    if (!canCreateFeedback({
+      launchPhase: launch.launch_phase,
+      isOwner: false,
+      isApprovedBetaUser,
+    })) {
+      return res.status(403).json({ error: launch.launch_phase === 'beta' ? 'Only approved beta users can post beta feedback.' : 'Feedback is not available.' });
+    }
+
     const validation = validateFeedbackInput(req.body);
     if (validation.error) {
       return res.status(400).json({ error: validation.error });
@@ -65,6 +106,7 @@ async function createLaunchFeedback(req, res) {
     const feedback = await LaunchFeedbackItem.create({
       launch_id: launch.id,
       author_id: req.user.userId,
+      visibility_scope: launch.launch_phase === 'beta' ? 'beta' : 'public',
       ...validation.data,
     });
 
@@ -115,6 +157,7 @@ async function updateLaunchFeedback(req, res) {
 
     const feedback = await LaunchFeedbackItem.findOne({
       where: { id: req.params.feedbackId, launch_id: launch.id },
+      include: getFeedbackInclude(),
     });
     if (!feedback) {
       return res.status(404).json({ error: 'Feedback item not found.' });
@@ -134,6 +177,7 @@ async function updateLaunchFeedback(req, res) {
     }
 
     const updates = { ...validation.data };
+    delete updates.visibility_scope;
     if (updates.status !== undefined && !isOwner) {
       return res.status(403).json({ error: 'Only the builder can change feedback status.' });
     }
@@ -158,6 +202,7 @@ async function deleteLaunchFeedback(req, res) {
 
     const feedback = await LaunchFeedbackItem.findOne({
       where: { id: req.params.feedbackId, launch_id: launch.id },
+      include: getFeedbackInclude(),
     });
     if (!feedback) {
       return res.status(404).json({ error: 'Feedback item not found.' });
@@ -184,9 +229,30 @@ async function createLaunchFeedbackComment(req, res) {
 
     const feedback = await LaunchFeedbackItem.findOne({
       where: { id: req.params.feedbackId, launch_id: launch.id },
+      include: getFeedbackInclude(),
     });
     if (!feedback) {
       return res.status(404).json({ error: 'Feedback item not found.' });
+    }
+
+    const viewerId = req.user.userId;
+    const isOwner = isLaunchOwner(launch, viewerId);
+    const registration = launch.launch_phase === 'beta'
+      ? await LaunchBetaRegistration.findOne({
+        where: { launch_id: launch.id, user_id: viewerId },
+        attributes: ['status'],
+      })
+      : null;
+    const isApprovedBetaUser = registration?.status === 'approved';
+
+    if (!canViewFeedbackItem({
+      item: feedback,
+      launchPhase: launch.launch_phase,
+      viewerId,
+      isOwner,
+      isApprovedBetaUser,
+    })) {
+      return res.status(403).json({ error: 'You do not have access to comment on this feedback item.' });
     }
 
     const validation = validateFeedbackCommentInput(req.body);

@@ -26,6 +26,7 @@ const LAUNCH_DEVELOPMENT_STAGES = new Set([
 ]);
 const LAUNCH_COLLABORATION_MODES = new Set(['off', 'looking']);
 const LAUNCH_STATUSES = new Set(['draft', 'published', 'archived']);
+const LAUNCH_PHASES = new Set(['beta', 'live']);
 const LAUNCH_REVIEW_RECOMMENDATIONS = new Set(['recommend', 'mixed', 'not_recommend']);
 const LAUNCH_FEEDBACK_TYPES = new Set(['suggestion', 'bug', 'idea']);
 const LAUNCH_FEEDBACK_STATUSES = new Set(['open', 'acknowledged', 'planned', 'resolved', 'closed']);
@@ -109,6 +110,14 @@ function validateLaunchInput(body, { partial = false } = {}) {
     data.development_stage = developmentStage;
   }
 
+  if (!partial || body.launch_phase !== undefined) {
+    const launchPhase = asTrimmedString(body.launch_phase || 'live');
+    if (!isAllowedValue(launchPhase, LAUNCH_PHASES)) {
+      return { error: 'launch_phase must be beta or live.' };
+    }
+    data.launch_phase = launchPhase;
+  }
+
   if (!partial || body.demo_url !== undefined) {
     const demoUrl = normalizeOptionalUrl(body.demo_url);
     if (body.demo_url !== undefined && demoUrl === '') {
@@ -139,6 +148,34 @@ function validateLaunchInput(body, { partial = false } = {}) {
       return { error: 'docs_url must be an http/https URL.' };
     }
     data.docs_url = docsUrl;
+  }
+
+  if (!partial || body.beta_access_url !== undefined) {
+    const betaAccessUrl = normalizeOptionalUrl(body.beta_access_url);
+    if (body.beta_access_url !== undefined && betaAccessUrl === '') {
+      return { error: 'beta_access_url must be an http/https URL.' };
+    }
+    data.beta_access_url = betaAccessUrl;
+  }
+
+  if (!partial || body.live_url !== undefined) {
+    const liveUrl = normalizeOptionalUrl(body.live_url);
+    if (body.live_url !== undefined && liveUrl === '') {
+      return { error: 'live_url must be an http/https URL.' };
+    }
+    data.live_url = liveUrl;
+  }
+
+  if (!partial || body.beta_capacity !== undefined) {
+    if (body.beta_capacity === null || body.beta_capacity === undefined || body.beta_capacity === '') {
+      data.beta_capacity = null;
+    } else {
+      const betaCapacity = Number(body.beta_capacity);
+      if (!Number.isInteger(betaCapacity) || betaCapacity < 1 || betaCapacity > 100000) {
+        return { error: 'beta_capacity must be an integer between 1 and 100000.' };
+      }
+      data.beta_capacity = betaCapacity;
+    }
   }
 
   if (!partial || body.collaboration_mode !== undefined) {
@@ -201,9 +238,19 @@ function validateLaunchForPublish(launch) {
   if (!launch.description || !launch.description.trim()) return 'description is required before publishing.';
   if (!launch.product_type) return 'product_type is required before publishing.';
   if (!launch.development_stage) return 'development_stage is required before publishing.';
+  if (!launch.launch_phase) return 'launch_phase is required before publishing.';
 
-  if (!launch.demo_url && !launch.website_url && !launch.github_url) {
-    return 'At least one of demo_url, website_url, or github_url is required before publishing.';
+  if (launch.launch_phase === 'beta') {
+    if (!launch.beta_capacity || launch.beta_capacity < 1) {
+      return 'beta_capacity is required before publishing a beta launch.';
+    }
+    if (!launch.beta_access_url) {
+      return 'beta_access_url is required before publishing a beta launch.';
+    }
+  }
+
+  if (launch.launch_phase === 'live' && !launch.live_url && !launch.demo_url && !launch.website_url) {
+    return 'live_url is required before publishing a live launch.';
   }
 
   if (!Array.isArray(launch.screenshots) || launch.screenshots.length < 1) {
@@ -211,6 +258,15 @@ function validateLaunchForPublish(launch) {
   }
 
   return null;
+}
+
+function validateBetaRegistrationInput(body) {
+  const message = asTrimmedString(body.message) || null;
+  if (message && message.length > 1200) {
+    return { error: 'message must be 1200 characters or fewer.' };
+  }
+
+  return { data: { message } };
 }
 
 function validateLaunchReviewInput(body) {
@@ -314,12 +370,14 @@ module.exports = {
   LAUNCH_DEVELOPMENT_STAGES,
   LAUNCH_COLLABORATION_MODES,
   LAUNCH_STATUSES,
+  LAUNCH_PHASES,
   LAUNCH_REVIEW_RECOMMENDATIONS,
   LAUNCH_FEEDBACK_TYPES,
   LAUNCH_FEEDBACK_STATUSES,
   buildLaunchSlug,
   validateLaunchInput,
   validateLaunchForPublish,
+  validateBetaRegistrationInput,
   validateLaunchReviewInput,
   validateFeedbackInput,
   validateFeedbackCommentInput,

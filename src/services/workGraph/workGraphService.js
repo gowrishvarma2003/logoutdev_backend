@@ -227,11 +227,21 @@ async function getLaunchGraph(launch, viewerId = null) {
     ].filter(Boolean).slice(0, 6),
     next_steps: [
       buildNextStep({
-        title: launch.collaboration_mode === 'looking' && launch.linked_space_id ? 'Collaborate on this launch' : 'Review this launch',
-        description: launch.collaboration_mode === 'looking' && launch.linked_space_id
+        title: launch.launch_phase === 'beta'
+          ? 'Request beta access'
+          : launch.collaboration_mode === 'looking' && launch.linked_space_id
+            ? 'Collaborate on this launch'
+            : 'Review this launch',
+        description: launch.launch_phase === 'beta'
+          ? 'Register for the beta before the product goes fully public.'
+          : launch.collaboration_mode === 'looking' && launch.linked_space_id
           ? 'Move from the product page into the team workspace.'
           : 'Leave feedback and help the builder improve it.',
-        href: launch.collaboration_mode === 'looking' && launch.linked_space_id ? `/launches/${launch.id}/collaborate` : `/launches/${launch.id}#reviews`,
+        href: launch.launch_phase === 'beta'
+          ? `/launches/${launch.id}#beta`
+          : launch.collaboration_mode === 'looking' && launch.linked_space_id
+            ? `/launches/${launch.id}/collaborate`
+            : `/launches/${launch.id}#reviews`,
         auth_required: true,
         priority: 100,
       }),

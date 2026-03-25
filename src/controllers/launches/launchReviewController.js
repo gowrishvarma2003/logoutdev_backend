@@ -48,6 +48,11 @@ async function upsertMyReview(req, res) {
       return res.status(400).json({ error: 'Only published launches can be reviewed.' });
     }
 
+    if (launch.launch_phase !== 'live') {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Reviews open when the launch goes live.' });
+    }
+
     if (isLaunchOwner(launch, req.user.userId)) {
       await transaction.rollback();
       return res.status(400).json({ error: 'Builders cannot review their own launch.' });

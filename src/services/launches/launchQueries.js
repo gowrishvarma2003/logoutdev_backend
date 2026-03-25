@@ -126,10 +126,20 @@ async function replaceLaunchTechStack(launchId, techStack, transaction) {
 }
 
 async function refreshLaunchCounts(launchId, transaction) {
+  const launch = await Launch.findByPk(launchId, {
+    attributes: ['id', 'launch_phase'],
+    transaction,
+  });
+
+  const feedbackWhere = {
+    launch_id: launchId,
+    ...(launch?.launch_phase === 'beta' ? { visibility_scope: 'beta' } : { visibility_scope: 'public' }),
+  };
+
   const [upvoteCount, reviewCount, feedbackCount] = await Promise.all([
     LaunchUpvote.count({ where: { launch_id: launchId }, transaction }),
     LaunchReview.count({ where: { launch_id: launchId }, transaction }),
-    LaunchFeedbackItem.count({ where: { launch_id: launchId }, transaction }),
+    LaunchFeedbackItem.count({ where: feedbackWhere, transaction }),
   ]);
 
   await Launch.update(

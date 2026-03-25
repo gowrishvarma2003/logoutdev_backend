@@ -3,6 +3,7 @@ const sequelize = require('../../db/sequelize');
 
 const LAUNCH_FEEDBACK_TYPES = ['suggestion', 'bug', 'idea'];
 const LAUNCH_FEEDBACK_STATUSES = ['open', 'acknowledged', 'planned', 'resolved', 'closed'];
+const LAUNCH_FEEDBACK_VISIBILITY_SCOPES = ['beta', 'public'];
 
 const LaunchFeedbackItem = sequelize.define(
   'LaunchFeedbackItem',
@@ -43,6 +44,14 @@ const LaunchFeedbackItem = sequelize.define(
       allowNull: false,
       defaultValue: 'open',
     },
+    visibility_scope: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'public',
+      validate: {
+        isIn: [LAUNCH_FEEDBACK_VISIBILITY_SCOPES],
+      },
+    },
     created_at: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -62,6 +71,7 @@ const LaunchFeedbackItem = sequelize.define(
       { fields: ['author_id'] },
       { fields: ['type'] },
       { fields: ['status'] },
+      { fields: ['visibility_scope'] },
     ],
   }
 );

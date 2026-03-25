@@ -8,8 +8,17 @@ const {
   createLaunch,
   updateLaunch,
   publishLaunch,
+  goLiveLaunch,
   archiveLaunch,
+  deleteLaunch,
 } = require('../../controllers/launches/launchController');
+const {
+  requestBetaRegistration,
+  withdrawMyBetaRegistration,
+  listBetaRegistrations,
+  approveBetaRegistration,
+  rejectBetaRegistration,
+} = require('../../controllers/launches/launchBetaController');
 const { upvoteLaunch, removeLaunchUpvote } = require('../../controllers/launches/launchUpvoteController');
 const {
   listLaunchReviews,
@@ -37,8 +46,15 @@ router.get('/:launchId/feedback', listLaunchFeedback);
 
 router.post('/', authMiddleware, createLaunch);
 router.patch('/:launchId', authMiddleware, updateLaunch);
+router.delete('/:launchId', authMiddleware, deleteLaunch);
 router.post('/:launchId/publish', authMiddleware, publishLaunch);
+router.post('/:launchId/go-live', authMiddleware, goLiveLaunch);
 router.post('/:launchId/archive', authMiddleware, archiveLaunch);
+router.post('/:launchId/beta-registrations', authMiddleware, requestBetaRegistration);
+router.delete('/:launchId/beta-registrations/me', authMiddleware, withdrawMyBetaRegistration);
+router.get('/:launchId/beta-registrations', authMiddleware, listBetaRegistrations);
+router.post('/:launchId/beta-registrations/:registrationId/approve', authMiddleware, approveBetaRegistration);
+router.post('/:launchId/beta-registrations/:registrationId/reject', authMiddleware, rejectBetaRegistration);
 router.post('/:launchId/upvote', authMiddleware, upvoteLaunch);
 router.delete('/:launchId/upvote', authMiddleware, removeLaunchUpvote);
 router.put('/:launchId/my-review', authMiddleware, upsertMyReview);

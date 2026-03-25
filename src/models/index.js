@@ -45,6 +45,7 @@ const LaunchScreenshot = require('./launches/LaunchScreenshot');
 const LaunchTechStack = require('./launches/LaunchTechStack');
 const LaunchUpvote = require('./launches/LaunchUpvote');
 const LaunchReview = require('./launches/LaunchReview');
+const LaunchBetaRegistration = require('./launches/LaunchBetaRegistration');
 const LaunchFeedbackItem = require('./launches/LaunchFeedbackItem');
 const LaunchFeedbackComment = require('./launches/LaunchFeedbackComment');
 const FreelanceProject = require('./freelance/FreelanceProject');
@@ -358,6 +359,12 @@ Launch.hasMany(LaunchReview, { foreignKey: 'launch_id', as: 'reviews' });
 LaunchReview.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
 LaunchReview.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
 User.hasMany(LaunchReview, { foreignKey: 'author_id', as: 'launch_reviews' });
+Launch.hasMany(LaunchBetaRegistration, { foreignKey: 'launch_id', as: 'beta_registrations' });
+LaunchBetaRegistration.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
+LaunchBetaRegistration.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+LaunchBetaRegistration.belongsTo(User, { foreignKey: 'reviewed_by', as: 'reviewer' });
+User.hasMany(LaunchBetaRegistration, { foreignKey: 'user_id', as: 'launch_beta_registrations' });
+User.hasMany(LaunchBetaRegistration, { foreignKey: 'reviewed_by', as: 'launch_beta_reviews' });
 Launch.hasMany(LaunchFeedbackItem, { foreignKey: 'launch_id', as: 'feedback_items' });
 LaunchFeedbackItem.belongsTo(Launch, { foreignKey: 'launch_id', as: 'launch' });
 LaunchFeedbackItem.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
@@ -538,6 +545,88 @@ async function ensureQuestionOptionColumns() {
   } catch (error) {
     // Table may not exist on first boot; sequelize.sync() creates it.
   }
+}
+
+async function ensureLaunchColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await describeTableSafe('launches');
+  if (!table) return;
+
+  if (!table.launch_phase) {
+    await queryInterface.addColumn('launches', 'launch_phase', {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'live',
+    });
+  }
+
+  if (!table.beta_capacity) {
+    await queryInterface.addColumn('launches', 'beta_capacity', {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    });
+  }
+
+  if (!table.beta_access_url) {
+    await queryInterface.addColumn('launches', 'beta_access_url', {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    });
+  }
+
+  if (!table.beta_opened_at) {
+    await queryInterface.addColumn('launches', 'beta_opened_at', {
+      type: DataTypes.DATE,
+      allowNull: true,
+    });
+  }
+
+  if (!table.live_url) {
+    await queryInterface.addColumn('launches', 'live_url', {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    });
+  }
+
+  if (!table.went_live_at) {
+    await queryInterface.addColumn('launches', 'went_live_at', {
+      type: DataTypes.DATE,
+      allowNull: true,
+    });
+  }
+
+  await sequelize.query(`
+    UPDATE launches
+    SET launch_phase = COALESCE(NULLIF(launch_phase, ''), 'live'),
+        live_url = COALESCE(live_url, demo_url, website_url),
+        went_live_at = COALESCE(went_live_at, published_at)
+  `);
+}
+
+async function ensureLaunchFeedbackColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  const table = await describeTableSafe('launch_feedback_items');
+  if (!table) return;
+
+  if (!table.visibility_scope) {
+    await queryInterface.addColumn('launch_feedback_items', 'visibility_scope', {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'public',
+    });
+  }
+
+  await sequelize.query(`
+    UPDATE launch_feedback_items
+    SET visibility_scope = COALESCE(NULLIF(visibility_scope, ''), 'public')
+  `);
+}
+
+async function ensureLaunchBetaRegistrationTable() {
+  const table = await describeTableSafe('launch_beta_registrations');
+  if (table) return;
+
+  await LaunchBetaRegistration.sync();
 }
 
 async function describeTableSafe(tableName) {
@@ -1284,6 +1373,9 @@ async function initModels(options = {}) {
   await runInitStep('ensureDiscussionReplyColumns', () => ensureDiscussionReplyColumns());
   await runInitStep('ensureQuestionDiscussionColumns', () => ensureQuestionDiscussionColumns());
   await runInitStep('ensureQuestionOptionColumns', () => ensureQuestionOptionColumns());
+  await runInitStep('ensureLaunchColumns', () => ensureLaunchColumns());
+  await runInitStep('ensureLaunchFeedbackColumns', () => ensureLaunchFeedbackColumns());
+  await runInitStep('ensureLaunchBetaRegistrationTable', () => ensureLaunchBetaRegistrationTable());
   await syncDatabaseSchema({ syncSchema });
   await runInitStep('backfillMissingUsernames', () => backfillMissingUsernames());
   await runOptionalInitStep(
@@ -1346,6 +1438,7 @@ module.exports = {
   LaunchTechStack,
   LaunchUpvote,
   LaunchReview,
+  LaunchBetaRegistration,
   LaunchFeedbackItem,
   LaunchFeedbackComment,
   FreelanceProject,

@@ -274,7 +274,7 @@ async function getSpace(req, res) {
         {
           model: Launch,
           as: 'linked_launch',
-          attributes: ['id', 'name', 'slug', 'tagline', 'status', 'upvote_count', 'review_count'],
+          attributes: ['id', 'name', 'slug', 'tagline', 'launch_phase', 'status', 'upvote_count', 'review_count'],
           required: false,
         },
       ],

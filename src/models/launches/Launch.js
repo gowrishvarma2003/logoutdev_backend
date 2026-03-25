@@ -21,6 +21,7 @@ const LAUNCH_DEVELOPMENT_STAGES = [
 ];
 const LAUNCH_COLLABORATION_MODES = ['off', 'looking'];
 const LAUNCH_STATUSES = ['draft', 'published', 'archived'];
+const LAUNCH_PHASES = ['beta', 'live'];
 
 const Launch = sequelize.define(
   'Launch',
@@ -75,6 +76,42 @@ const Launch = sequelize.define(
     development_stage: {
       type: DataTypes.ENUM(...LAUNCH_DEVELOPMENT_STAGES),
       allowNull: false,
+    },
+    launch_phase: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: 'live',
+      validate: {
+        isIn: [LAUNCH_PHASES],
+      },
+    },
+    beta_capacity: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+      validate: {
+        min: 1,
+      },
+    },
+    beta_access_url: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    beta_opened_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    live_url: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
+    went_live_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     demo_url: {
       type: DataTypes.TEXT,
@@ -166,7 +203,10 @@ const Launch = sequelize.define(
       { fields: ['status'] },
       { fields: ['product_type'] },
       { fields: ['development_stage'] },
+      { fields: ['launch_phase'] },
       { fields: ['published_at'] },
+      { fields: ['beta_opened_at'] },
+      { fields: ['went_live_at'] },
       { fields: ['upvote_count'] },
     ],
   }
