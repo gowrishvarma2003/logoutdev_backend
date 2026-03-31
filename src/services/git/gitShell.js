@@ -45,6 +45,13 @@ async function execGit(args, options = {}) {
   }
 }
 
+function isMissingTreePathError(error) {
+  const stderr = String(error?.gitStderr || error?.stderr || error?.message || '');
+  return stderr.includes('Not a valid object name')
+    || stderr.includes('not a tree object')
+    || stderr.includes('exists on disk, but not in');
+}
+
 async function hashBlobInBareRepo(repoPath, content) {
   const { spawn } = require('child_process');
 
@@ -113,6 +120,29 @@ function parseLsTree(buffer, basePath) {
   });
 }
 
+function parseRecursiveLsTree(buffer, basePath) {
+  const text = buffer.toString('utf8');
+  const lines = text.split('\n').filter(Boolean);
+  const normalizedBase = normalizeRepoPath(basePath);
+
+  return lines.map((line) => {
+    const [meta, name] = line.split('\t');
+    const [mode, type, oid, sizeValue] = meta.split(/\s+/);
+    const path = normalizedBase ? `${normalizedBase}/${name}` : name;
+    const size = sizeValue === '-' || sizeValue === undefined ? null : Number(sizeValue);
+
+    return {
+      path,
+      name: path.split('/').pop() || path,
+      type,
+      mode,
+      oid,
+      size: Number.isFinite(size) ? size : null,
+      extension: path.includes('.') ? path.split('.').pop().toLowerCase() : '',
+    };
+  });
+}
+
 async function listTree(repoPath, ref, treePath = '') {
   const normalizedRef = ref || 'HEAD';
   const normalizedPath = normalizeRepoPath(treePath);
@@ -127,8 +157,45 @@ async function listTree(repoPath, ref, treePath = '') {
   }
 
   const target = normalizedPath ? `${normalizedRef}:${normalizedPath}` : normalizedRef;
-  const output = await execGit(['--git-dir', repoPath, 'ls-tree', target], { encoding: 'buffer' });
+  let output;
+  try {
+    output = await execGit(['--git-dir', repoPath, 'ls-tree', target], { encoding: 'buffer' });
+  } catch (error) {
+    if (normalizedPath && isMissingTreePathError(error)) {
+      return [];
+    }
+    throw error;
+  }
   return parseLsTree(output, normalizedPath);
+}
+
+async function listTreeRecursive(repoPath, ref, treePath = '') {
+  const normalizedRef = ref || 'HEAD';
+  const normalizedPath = normalizeRepoPath(treePath);
+
+  if (!isSafeRef(normalizedRef)) {
+    throw new Error('Invalid ref.');
+  }
+
+  const hasCommits = await repoHasCommits(repoPath, normalizedRef);
+  if (!hasCommits) {
+    return [];
+  }
+
+  const target = normalizedPath ? `${normalizedRef}:${normalizedPath}` : normalizedRef;
+  let output;
+  try {
+    output = await execGit(['--git-dir', repoPath, 'ls-tree', '-r', '-l', target], {
+      encoding: 'buffer',
+      maxBuffer: 50 * 1024 * 1024,
+    });
+  } catch (error) {
+    if (normalizedPath && isMissingTreePathError(error)) {
+      return [];
+    }
+    throw error;
+  }
+  return parseRecursiveLsTree(output, normalizedPath);
 }
 
 async function readBlob(repoPath, ref, blobPath) {
@@ -143,6 +210,12 @@ async function readBlob(repoPath, ref, blobPath) {
     throw new Error('Invalid ref.');
   }
 
+  const oidOutput = await execGit([
+    '--git-dir',
+    repoPath,
+    'rev-parse',
+    `${normalizedRef}:${normalizedPath}`,
+  ]);
   const sizeOutput = await execGit([
     '--git-dir',
     repoPath,
@@ -160,11 +233,34 @@ async function readBlob(repoPath, ref, blobPath) {
   const isBinary = content.includes(0);
 
   return {
+    oid: String(oidOutput).trim(),
     size,
     is_binary: isBinary,
     content: isBinary ? undefined : content.toString('utf8'),
     encoding: isBinary ? undefined : 'utf-8',
   };
+}
+
+async function getRefOid(repoPath, ref = 'HEAD') {
+  const normalizedRef = ref || 'HEAD';
+
+  if (!isSafeRef(normalizedRef)) {
+    throw new Error('Invalid ref.');
+  }
+
+  const output = await execGit(['--git-dir', repoPath, 'rev-parse', normalizedRef]);
+  return String(output).trim();
+}
+
+async function branchExists(repoPath, name) {
+  if (!isSafeRef(name)) throw new Error('Invalid branch name.');
+
+  try {
+    await execGit(['--git-dir', repoPath, 'rev-parse', '--verify', `refs/heads/${name}^{commit}`]);
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 async function findReadme(repoPath, ref) {
@@ -275,6 +371,26 @@ async function createBranch(repoPath, name, startPoint = 'HEAD') {
   if (!isSafeRef(startPoint)) throw new Error('Invalid start point.');
   await execGit(['--git-dir', repoPath, 'branch', name, startPoint]);
   return { name, start_point: startPoint };
+}
+
+async function ensureBranch(repoPath, name, startPoint = 'HEAD') {
+  const exists = await branchExists(repoPath, name);
+  if (exists) {
+    return {
+      name,
+      start_point: startPoint,
+      created: false,
+      head: await getRefOid(repoPath, `refs/heads/${name}`),
+    };
+  }
+
+  await createBranch(repoPath, name, startPoint);
+  return {
+    name,
+    start_point: startPoint,
+    created: true,
+    head: await getRefOid(repoPath, `refs/heads/${name}`),
+  };
 }
 
 async function deleteBranch(repoPath, name) {
@@ -496,6 +612,95 @@ async function writeFileContent(repoPath, ref, filePath, content, message, autho
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
 
     return { oid: newCommit, path: normalizedPath };
+  } finally {
+    try { fs.unlinkSync(tmpIndex); } catch (_) { /* ignore */ }
+  }
+}
+
+async function writeFilesBatch(repoPath, ref, files, message, author, options = {}) {
+  if (!isSafeRef(ref)) throw new Error('Invalid ref.');
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error('At least one file is required.');
+  }
+
+  const branchRef = `refs/heads/${ref}`;
+  const expectedHead = options.expectedHead ? String(options.expectedHead).trim() : null;
+
+  const { execFile: execFileCb } = require('child_process');
+  const { promisify } = require('util');
+  const execFileP = promisify(execFileCb);
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const tmpIndex = path.join(os.tmpdir(), `logoutdev-idx-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+  let parentCommit = null;
+  let baseTree = null;
+  try {
+    parentCommit = String(await execGit(['--git-dir', repoPath, 'rev-parse', branchRef])).trim();
+    baseTree = String(await execGit(['--git-dir', repoPath, 'rev-parse', `${parentCommit}^{tree}`])).trim();
+  } catch (_) {
+    // First commit on a branch.
+  }
+
+  if (expectedHead && parentCommit && expectedHead !== parentCommit) {
+    throw new Error('Branch head changed before publish.');
+  }
+  if (expectedHead && !parentCommit) {
+    throw new Error('Expected branch head does not exist.');
+  }
+
+  try {
+    const gitEnv = { ...process.env, GIT_INDEX_FILE: tmpIndex, GIT_DIR: repoPath };
+
+    if (baseTree) {
+      await execFileP('git', ['read-tree', baseTree], { env: gitEnv });
+    }
+
+    for (const file of files) {
+      const normalizedPath = normalizeRepoPath(file.path);
+      if (!normalizedPath) {
+        throw new Error('File path is required.');
+      }
+
+      if (file.delete) {
+        await execFileP('git', ['update-index', '--remove', normalizedPath], { env: gitEnv });
+        continue;
+      }
+
+      const hashBlob = await hashBlobInBareRepo(repoPath, file.content ?? '');
+      await execFileP('git', [
+        'update-index', '--add', '--cacheinfo',
+        '100644', hashBlob, normalizedPath,
+      ], { env: gitEnv });
+    }
+
+    const { stdout: newTreeStdout } = await execFileP('git', ['write-tree'], { env: gitEnv });
+    const newTree = String(newTreeStdout).trim();
+    const commitArgs = ['commit-tree', newTree, '-m', message];
+    if (parentCommit) {
+      commitArgs.push('-p', parentCommit);
+    }
+
+    const commitEnv = {
+      ...gitEnv,
+      GIT_AUTHOR_NAME: author.name,
+      GIT_AUTHOR_EMAIL: author.email,
+      GIT_COMMITTER_NAME: author.name,
+      GIT_COMMITTER_EMAIL: author.email,
+    };
+
+    const { stdout: newCommitStdout } = await execFileP('git', commitArgs, { env: commitEnv });
+    const newCommit = String(newCommitStdout).trim();
+    await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
+
+    return {
+      oid: newCommit,
+      files: files.map((file) => ({
+        path: normalizeRepoPath(file.path),
+        delete: Boolean(file.delete),
+      })),
+    };
   } finally {
     try { fs.unlinkSync(tmpIndex); } catch (_) { /* ignore */ }
   }
@@ -755,21 +960,27 @@ async function mergeBranches(repoPath, baseBranch, topicBranch, options = {}) {
 module.exports = {
   isSafeRef,
   normalizeRepoPath,
+  isMissingTreePathError,
   initializeBareRepository,
   setDefaultBranch,
   listTree,
+  listTreeRecursive,
   readBlob,
   findReadme,
   listCommits,
+  getRefOid,
   repoHasCommits,
   listBranches,
+  branchExists,
   createBranch,
+  ensureBranch,
   deleteBranch,
   listTags,
   createTag,
   deleteTag,
   getCommitDetail,
   writeFileContent,
+  writeFilesBatch,
   deleteFileByPath,
   forkRepository,
   fetchRefIntoRepo,

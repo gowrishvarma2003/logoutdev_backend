@@ -97,6 +97,12 @@ const {
   addDiscussionComment,
   markAnswer,
 } = require('../../controllers/repos/repoDiscussionController');
+const {
+  ensureRepoDoc,
+  fetchRepoDocStatus,
+  fetchRepoDocRuns,
+  forceRegenerateRepoDoc,
+} = require('../../controllers/repos/repoDocController');
 
 const router = express.Router();
 
@@ -131,6 +137,8 @@ router.get('/:repoId/discussions', listDiscussions);
 router.get('/:repoId/discussions/:discussionId', getDiscussion);
 router.get('/:repoId/access', getRepoAccessOverview);
 router.get('/:repoId/insights', getRepoInsights);
+router.get('/:repoId/ai-doc', fetchRepoDocStatus);
+router.get('/:repoId/ai-doc/runs', fetchRepoDocRuns);
 
 // ─── Authenticated routes ───────────────────────────────────────────
 router.use(authMiddleware);
@@ -149,6 +157,8 @@ router.get('/:repoId/collaborators/search', searchCollaborators);
 // Attachments
 router.put('/:repoId/attachment', upsertRepoAttachment);
 router.delete('/:repoId/attachment', removeRepoAttachment);
+router.post('/:repoId/ai-doc/ensure', ensureRepoDoc);
+router.post('/:repoId/ai-doc/regenerate', forceRegenerateRepoDoc);
 
 // Branches
 router.post('/:repoId/branches', createRepoBranch);

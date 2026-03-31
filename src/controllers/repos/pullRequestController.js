@@ -21,6 +21,7 @@ const {
   loadPullRequestReviews,
   normalizeStatusContexts,
 } = require('../../services/repos/repoGovernance');
+const { tryTriggerDefaultBranchRepoDocRefresh } = require('../../services/repos/repoDocRefresh');
 const { getAuthenticatedUserId } = require('../../utils/requestUser');
 
 function buildAvatarUser(user, req) {
@@ -815,7 +816,7 @@ async function mergePullRequest(req, res) {
     const user = req.user;
     const authorName = user.name || user.username || 'System';
     const authorEmail = user.email || 'system@logout.dev';
-    await gitShell.mergeBranches(
+    const mergeCommitOid = await gitShell.mergeBranches(
       compareDetails.is_cross_repo ? await resolveRepoPath(baseRepo.id, baseRepo.space_id) : await resolveRepoPath(readable.repo.id, readable.repo.space_id),
       pr.target_branch,
       compareDetails.is_cross_repo ? getSyntheticHeadRef(sourceRepo.id, pr.source_branch, 'pr-sources') : pr.source_branch,
@@ -830,6 +831,15 @@ async function mergePullRequest(req, res) {
     pr.merged_by = req.user.userId;
     pr.merged_at = new Date();
     await pr.save();
+
+    await tryTriggerDefaultBranchRepoDocRefresh({
+      repo: baseRepo,
+      branchName: pr.target_branch,
+      sourceCommit: mergeCommitOid,
+      trigger: 'default_branch_updated',
+      requestedByUserId: req.user.userId,
+      requestedByUsername: req.user.username || req.user.name || null,
+    });
 
     const reloaded = await loadPullRequestOr404(repoId, number);
     res.json(await serializePullRequest(reloaded, req, readable.repo, readable.access));

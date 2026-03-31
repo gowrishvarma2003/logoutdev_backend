@@ -45,6 +45,11 @@ const Post = sequelize.define(
       type: DataTypes.UUID,
       allowNull: true,
     },
+    is_poll: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     like_count: {
       type: DataTypes.INTEGER,
       allowNull: false,

@@ -17,6 +17,7 @@ const questionRoutes = require('./routes/questions/questionRoutes');
 const launchRoutes = require('./routes/launches/launchRoutes');
 const freelanceRoutes = require('./routes/freelance/freelanceRoutes');
 const freelanceMeRoutes = require('./routes/freelance/freelanceMeRoutes');
+const internalRepoRoutes = require('./routes/internal/internalRepoRoutes');
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use('/api/launches', launchRoutes);
 app.use('/api/freelance', freelanceRoutes);
 app.use('/api/users/me/freelance', freelanceMeRoutes);
 app.use('/git', gitRoutes);
+app.use('/internal', internalRepoRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

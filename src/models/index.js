@@ -60,6 +60,8 @@ const QuestionDiscussionComment = require('./questions/QuestionDiscussionComment
 const QuestionTag = require('./questions/QuestionTag');
 const UserProfileSkill = require('./profile/UserProfileSkill');
 const UserFeaturedProject = require('./profile/UserFeaturedProject');
+const PollOption = require('./feed/PollOption');
+const PollVote = require('./feed/PollVote');
 
 // ─── Associations ─────────────────────────────────────────────────────────────
 
@@ -90,6 +92,17 @@ Post.hasMany(PostMention, { foreignKey: 'post_id', as: 'mentions' });
 PostMention.belongsTo(Post, { foreignKey: 'post_id', as: 'post' });
 PostMention.belongsTo(User, { foreignKey: 'mentioned_user_id', as: 'mentioned_user' });
 User.hasMany(PostMention, { foreignKey: 'mentioned_user_id', as: 'post_mentions' });
+
+// Post ↔ PollOptions
+Post.hasMany(PollOption, { foreignKey: 'post_id', as: 'poll_options' });
+PollOption.belongsTo(Post, { foreignKey: 'post_id', as: 'post' });
+
+// Post ↔ PollVotes
+Post.hasMany(PollVote, { foreignKey: 'post_id', as: 'poll_votes' });
+PollVote.belongsTo(Post, { foreignKey: 'post_id', as: 'post' });
+PollVote.belongsTo(PollOption, { foreignKey: 'option_id', as: 'option' });
+PollOption.hasMany(PollVote, { foreignKey: 'option_id', as: 'votes' });
+PollVote.belongsTo(User, { foreignKey: 'user_id', as: 'voter' });
 
 // User ↔ Follow
 User.hasMany(Follow, { foreignKey: 'follower_id', as: 'following' });
@@ -1338,6 +1351,31 @@ async function runOptionalInitStep(stepName, requiredTables, operation) {
   return true;
 }
 
+async function ensurePostPollColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+
+  try {
+    const table = await queryInterface.describeTable('posts');
+
+    if (!table.is_poll) {
+      await queryInterface.addColumn('posts', 'is_poll', {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      });
+    }
+  } catch (error) {
+    // Table may not exist on first boot; sequelize.sync() creates it.
+  }
+}
+
+async function ensurePostPollTables() {
+  // Poll models were introduced after initial deploy; ensure tables exist even when
+  // global schema sync is disabled in non-local environments.
+  await PollOption.sync();
+  await PollVote.sync();
+}
+
 async function syncDatabaseSchema({ syncSchema = shouldSyncModelsOnStartup() } = {}) {
   if (!syncSchema) {
     logger.info('Skipping model sync on startup.', {
@@ -1376,6 +1414,8 @@ async function initModels(options = {}) {
   await runInitStep('ensureLaunchColumns', () => ensureLaunchColumns());
   await runInitStep('ensureLaunchFeedbackColumns', () => ensureLaunchFeedbackColumns());
   await runInitStep('ensureLaunchBetaRegistrationTable', () => ensureLaunchBetaRegistrationTable());
+  await runInitStep('ensurePostPollTables', () => ensurePostPollTables());
+  await runInitStep('ensurePostPollColumns', () => ensurePostPollColumns());
   await syncDatabaseSchema({ syncSchema });
   await runInitStep('backfillMissingUsernames', () => backfillMissingUsernames());
   await runOptionalInitStep(
@@ -1453,6 +1493,8 @@ module.exports = {
   QuestionTag,
   UserProfileSkill,
   UserFeaturedProject,
+  PollOption,
+  PollVote,
   PullRequest,
   PullRequestReview,
   PullRequestComment,

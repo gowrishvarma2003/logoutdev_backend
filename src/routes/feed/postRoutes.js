@@ -12,6 +12,7 @@ const {
 } = require('../../controllers/feed/postController');
 const { likePost, unlikePost } = require('../../controllers/feed/likeController');
 const { repostPost, undoRepost } = require('../../controllers/feed/repostController');
+const { submitPollVote } = require('../../controllers/feed/pollController');
 
 const router = express.Router();
 
@@ -39,5 +40,8 @@ router.delete('/:postId/like', unlikePost);
 // Reposts
 router.post('/:postId/repost', repostPost);
 router.delete('/:postId/repost', undoRepost);
+
+// Polls
+router.post('/:postId/poll-vote', submitPollVote);
 
 module.exports = router;

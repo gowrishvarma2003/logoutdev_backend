@@ -22,6 +22,8 @@ const {
 } = require('../../services/questions/questionQueries');
 const { getQuestionGraph } = require('../../services/workGraph/workGraphService');
 
+const UUID_V4_LIKE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function listQuestions(req, res) {
   try {
     const filters = parseQuestionFilters(req.query);
@@ -35,6 +37,10 @@ async function listQuestions(req, res) {
 
 async function getQuestion(req, res) {
   try {
+    if (!UUID_V4_LIKE_REGEX.test(String(req.params.questionId || ''))) {
+      return res.status(404).json({ error: 'Question not found.' });
+    }
+
     const userId = req.user?.userId || null;
     const question = await getQuestionById(req.params.questionId);
     if (!question) {

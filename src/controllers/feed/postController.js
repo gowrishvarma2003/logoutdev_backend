@@ -8,6 +8,8 @@ const {
   Follow,
   User,
   HashtagRelation,
+  PollOption,
+  PollVote,
 } = require('../../models');
 const {
   upsertPostEntities,
@@ -60,6 +62,33 @@ async function enrichPosts(posts, userId) {
     repostedSet = new Set(reposts.map((item) => item.post_id));
   }
 
+  // Fetch poll data for poll posts
+  const pollPostIds = posts.filter((p) => p.is_poll).map((p) => p.id);
+  let pollOptionsMap = {};
+  let userVoteMap = {};
+
+  if (pollPostIds.length > 0) {
+    const [allOptions, userVotes] = await Promise.all([
+      PollOption.findAll({
+        where: { post_id: { [Op.in]: pollPostIds } },
+        order: [['position', 'ASC']],
+        attributes: ['id', 'post_id', 'position', 'text', 'vote_count'],
+      }),
+      userId ? PollVote.findAll({
+        where: { post_id: { [Op.in]: pollPostIds }, user_id: userId },
+        attributes: ['post_id', 'option_id'],
+      }) : [],
+    ]);
+
+    for (const opt of allOptions) {
+      if (!pollOptionsMap[opt.post_id]) pollOptionsMap[opt.post_id] = [];
+      pollOptionsMap[opt.post_id].push(opt);
+    }
+    for (const vote of userVotes) {
+      userVoteMap[vote.post_id] = vote.option_id;
+    }
+  }
+
   const serialized = posts.map((post) => serializePostEntities({
     ...post.toJSON(),
     is_liked_by_me: likedSet.has(post.id),
@@ -75,10 +104,28 @@ async function enrichPosts(posts, userId) {
     ))
   );
 
-  return enrichedWithHashtags.map((post, index) => ({
-    ...post,
-    linked_entity: linkedEntities[index],
-  }));
+  return enrichedWithHashtags.map((post, index) => {
+    const result = { ...post, linked_entity: linkedEntities[index] };
+
+    if (post.is_poll) {
+      const options = pollOptionsMap[post.id] || [];
+      const totalVotes = options.reduce((sum, opt) => sum + (opt.vote_count || 0), 0);
+      const votedOptionId = userVoteMap[post.id] || null;
+
+      result.poll_options = options.map((opt) => ({
+        id: opt.id,
+        position: opt.position,
+        text: opt.text,
+        vote_count: opt.vote_count,
+        vote_percent: totalVotes > 0 ? Math.round((opt.vote_count / totalVotes) * 100) : 0,
+        voted_by_me: opt.id === votedOptionId,
+      }));
+      result.poll_total_votes = totalVotes;
+      result.poll_voted_by_me = Boolean(votedOptionId);
+    }
+
+    return result;
+  });
 }
 
 async function createPost(req, res) {
@@ -93,6 +140,7 @@ async function createPost(req, res) {
     const linkedEntityId = typeof req.body.linked_entity_id === 'string'
       ? req.body.linked_entity_id.trim()
       : null;
+    const pollOptions = Array.isArray(req.body.poll_options) ? req.body.poll_options : null;
 
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       await transaction.rollback();
@@ -119,12 +167,42 @@ async function createPost(req, res) {
       }
     }
 
+    if (pollOptions !== null) {
+      const cleaned = pollOptions.map((opt) => (typeof opt === 'string' ? opt.trim() : '')).filter(Boolean);
+      if (cleaned.length < 2 || cleaned.length > 4) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'A poll must have 2–4 options.' });
+      }
+      if (cleaned.some((opt) => opt.length > 200)) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Poll option text must be 200 characters or fewer.' });
+      }
+    }
+
+    const isPoll = pollOptions !== null && pollOptions.length >= 2;
+
     const post = await Post.create({
       user_id: userId,
       content: content.trim(),
       linked_entity_type: linkedEntityType,
       linked_entity_id: linkedEntityId,
+      is_poll: isPoll,
     }, { transaction });
+
+    if (isPoll) {
+      const cleanedOptions = pollOptions
+        .map((opt) => (typeof opt === 'string' ? opt.trim() : ''))
+        .filter(Boolean);
+      await PollOption.bulkCreate(
+        cleanedOptions.map((text, index) => ({
+          post_id: post.id,
+          position: index,
+          text,
+          vote_count: 0,
+        })),
+        { transaction }
+      );
+    }
 
     await upsertPostEntities({
       post,

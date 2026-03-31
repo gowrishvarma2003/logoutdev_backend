@@ -3,6 +3,7 @@ const { ensureRepoWritable } = require('../../services/spaces/repoAccess');
 const { resolveRepoPath } = require('../../services/git/gitPath');
 const { isSafeRef, writeFileContent, deleteFileByPath } = require('../../services/git/gitShell');
 const { getMatchingBranchProtectionRule, evaluateDirectBranchUpdate } = require('../../services/repos/repoGovernance');
+const { tryTriggerDefaultBranchRepoDocRefresh } = require('../../services/repos/repoDocRefresh');
 
 async function writeContents(req, res) {
   try {
@@ -35,6 +36,15 @@ async function writeContents(req, res) {
     const commit = await writeFileContent(repoPath, ref, filePath, content, message, {
       name: user.name || 'Unknown',
       email: user.email || 'anonymous@logoutdev.com',
+    });
+
+    await tryTriggerDefaultBranchRepoDocRefresh({
+      repo: result.repo,
+      branchName: ref,
+      sourceCommit: commit.oid,
+      trigger: 'default_branch_updated',
+      requestedByUserId: req.user.userId,
+      requestedByUsername: req.user.username || user.name || null,
     });
 
     return res.status(201).json({ commit });
@@ -73,6 +83,15 @@ async function deleteContents(req, res) {
     const commit = await deleteFileByPath(repoPath, ref, filePath, message, {
       name: user.name || 'Unknown',
       email: user.email || 'anonymous@logoutdev.com',
+    });
+
+    await tryTriggerDefaultBranchRepoDocRefresh({
+      repo: result.repo,
+      branchName: ref,
+      sourceCommit: commit.oid,
+      trigger: 'default_branch_updated',
+      requestedByUserId: req.user.userId,
+      requestedByUsername: req.user.username || user.name || null,
     });
 
     return res.json({ commit });
