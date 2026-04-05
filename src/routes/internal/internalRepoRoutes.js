@@ -7,6 +7,7 @@ const {
   getRecentCommits,
   getDiff,
   getBranchHead,
+  searchRepoCode,
   ensureAiBranch,
   commitAiArtifacts,
   getExistingAgentArtifacts,
@@ -21,6 +22,7 @@ router.use(internalServiceAuth({
 router.post('/repos/:repoId/inventory', getInventory);
 router.post('/repos/:repoId/blobs/batch', readBlobsBatch);
 router.post('/repos/:repoId/blobs/preview-batch', readBlobsPreviewBatch);
+router.post('/repos/:repoId/search', searchRepoCode);
 router.get('/repos/:repoId/commits', getRecentCommits);
 router.get('/repos/:repoId/diff', getDiff);
 router.get('/repos/:repoId/branch-head', getBranchHead);

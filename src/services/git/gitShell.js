@@ -241,6 +241,77 @@ async function readBlob(repoPath, ref, blobPath) {
   };
 }
 
+async function searchCode(repoPath, ref, query, options = {}) {
+  const normalizedRef = ref || 'HEAD';
+  const normalizedQuery = String(query || '').trim();
+  const maxResults = Math.max(Math.min(Number(options.maxResults) || 20, 100), 1);
+  const pathGlob = String(options.pathGlob || '').trim();
+  const caseSensitive = Boolean(options.caseSensitive);
+
+  if (!normalizedQuery) {
+    throw new Error('Search query is required.');
+  }
+  if (!isSafeRef(normalizedRef)) {
+    throw new Error('Invalid ref.');
+  }
+
+  const hasCommits = await repoHasCommits(repoPath, normalizedRef);
+  if (!hasCommits) {
+    return [];
+  }
+
+  const args = [
+    '--git-dir',
+    repoPath,
+    'grep',
+    '-n',
+    '-I',
+    '--full-name',
+    '--fixed-strings',
+  ];
+  if (!caseSensitive) {
+    args.push('-i');
+  }
+  args.push('-e', normalizedQuery, normalizedRef);
+  if (pathGlob) {
+    args.push('--', pathGlob);
+  }
+
+  try {
+    const output = await execGit(args, { maxBuffer: 20 * 1024 * 1024 });
+    const lines = String(output).split('\n').filter(Boolean);
+    const results = [];
+    for (const line of lines) {
+      const normalizedLine = line.startsWith(`${normalizedRef}:`)
+        ? line.slice(normalizedRef.length + 1)
+        : line;
+      const firstColon = normalizedLine.indexOf(':');
+      const secondColon = firstColon === -1 ? -1 : normalizedLine.indexOf(':', firstColon + 1);
+      if (firstColon === -1 || secondColon === -1) {
+        continue;
+      }
+      const path = normalizedLine.slice(0, firstColon);
+      const lineNumber = Number(normalizedLine.slice(firstColon + 1, secondColon));
+      const excerpt = normalizedLine.slice(secondColon + 1).trim();
+      results.push({
+        path,
+        line: Number.isFinite(lineNumber) ? lineNumber : 0,
+        excerpt,
+      });
+      if (results.length >= maxResults) {
+        break;
+      }
+    }
+    return results;
+  } catch (error) {
+    const stderr = String(error?.gitStderr || error?.stderr || error?.message || '');
+    if (error?.code === 1 || stderr.includes('exit code 1')) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function getRefOid(repoPath, ref = 'HEAD') {
   const normalizedRef = ref || 'HEAD';
 
@@ -970,6 +1041,7 @@ module.exports = {
   listCommits,
   getRefOid,
   repoHasCommits,
+  searchCode,
   listBranches,
   branchExists,
   createBranch,

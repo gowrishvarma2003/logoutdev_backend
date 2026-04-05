@@ -17,6 +17,7 @@ const {
   initializeBareRepository,
   listTreeRecursive,
   readBlob,
+  searchCode,
   writeFileContent,
   writeFilesBatch,
 } = require('../src/services/git/gitShell');
@@ -301,6 +302,58 @@ test('listTreeRecursive returns empty results for missing artifact directories o
 
     const entries = await listTreeRecursive(repoPath, AGENT_BRANCH_NAME, '.logoutdev');
     assert.deepEqual(entries, []);
+  } finally {
+    await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('searchCode returns bounded fixed-string matches from a ref', async () => {
+  const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'logoutdev-agent-search-'));
+  const repoPath = path.join(tmpRoot, 'repo.git');
+
+  try {
+    await initializeBareRepository(repoPath, 'main');
+    await writeFileContent(
+      repoPath,
+      'main',
+      'src/app.ts',
+      [
+        'import { createRouter } from "./router";',
+        'export function bootApp() {',
+        '  return createRouter();',
+        '}',
+      ].join('\n'),
+      'Add app',
+      { name: 'LogoutDev Test', email: 'test@logout.dev' }
+    );
+
+    const matches = await searchCode(repoPath, 'main', 'createRouter', { maxResults: 5 });
+    assert.equal(matches.length, 2);
+    assert.equal(matches[0].path, 'src/app.ts');
+    assert.ok(matches[0].line > 0);
+    assert.match(matches[0].excerpt, /createRouter/);
+  } finally {
+    await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test('searchCode returns no matches for missing queries', async () => {
+  const tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'logoutdev-agent-search-empty-'));
+  const repoPath = path.join(tmpRoot, 'repo.git');
+
+  try {
+    await initializeBareRepository(repoPath, 'main');
+    await writeFileContent(
+      repoPath,
+      'main',
+      'src/app.ts',
+      'export const version = "1.0.0";\n',
+      'Add app',
+      { name: 'LogoutDev Test', email: 'test@logout.dev' }
+    );
+
+    const matches = await searchCode(repoPath, 'main', 'missingSymbol', { maxResults: 5 });
+    assert.deepEqual(matches, []);
   } finally {
     await fs.promises.rm(tmpRoot, { recursive: true, force: true });
   }

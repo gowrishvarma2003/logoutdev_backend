@@ -10,6 +10,7 @@ const {
   branchExists,
   ensureBranch,
   writeFilesBatch,
+  searchCode,
 } = require('../../services/git/gitShell');
 const {
   AGENT_BRANCH_NAME,
@@ -239,6 +240,45 @@ async function getBranchHead(req, res) {
   }
 }
 
+async function searchRepoCode(req, res) {
+  try {
+    const repo = await loadInternalRepo(req, res);
+    if (!repo) return;
+
+    const ref = typeof req.body?.ref === 'string' && req.body.ref.trim()
+      ? req.body.ref.trim()
+      : repo.default_branch;
+    const query = typeof req.body?.query === 'string' ? req.body.query.trim() : '';
+    const pathGlob = typeof req.body?.path_glob === 'string' ? req.body.path_glob.trim() : '';
+    const maxResults = Math.min(Math.max(Number(req.body?.max_results) || 20, 1), MAX_BATCH_PATHS);
+    const caseSensitive = Boolean(req.body?.case_sensitive);
+
+    if (!isSafeRef(ref)) {
+      return res.status(400).json({ error: 'Invalid ref.' });
+    }
+    if (!query) {
+      return res.status(400).json({ error: 'Search query is required.' });
+    }
+
+    const repoPath = await resolveRepoPath(repo.id, repo.space_id);
+    const matches = await searchCode(repoPath, ref, query, {
+      pathGlob,
+      maxResults,
+      caseSensitive,
+    });
+
+    audit(req, 'search_repo_code', { ref, query_length: query.length, match_count: matches.length });
+    return res.json({
+      repo_id: repo.id,
+      ref,
+      query,
+      matches,
+    });
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Failed to search repository code.' });
+  }
+}
+
 async function ensureAiBranch(req, res) {
   try {
     const repo = await loadInternalRepo(req, res);
@@ -400,6 +440,7 @@ module.exports = {
   getRecentCommits,
   getDiff,
   getBranchHead,
+  searchRepoCode,
   ensureAiBranch,
   commitAiArtifacts,
   getExistingAgentArtifacts,
