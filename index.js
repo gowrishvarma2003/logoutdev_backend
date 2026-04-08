@@ -4,6 +4,7 @@ const app = require('./src/app');
 const { closeLogger, getLogRootPath, logger, registerProcessLogging } = require('./src/logging/logger');
 const { initModels } = require('./src/models');
 const { initializeUserStore } = require('./src/services/auth/userStore');
+const { initializeGitCacheCleanupService } = require('./src/services/git/gitCacheCleanupService');
 
 const port = process.env.PORT || 3000;
 
@@ -15,6 +16,15 @@ async function startServer() {
     logger.info('Database connected successfully.');
     await initializeUserStore();
 
+    let stopGitCacheCleanupService = () => {};
+    try {
+      stopGitCacheCleanupService = await initializeGitCacheCleanupService();
+    } catch (cleanupError) {
+      logger.warn('Git cache cleanup service failed to initialize.', {
+        error: cleanupError.message,
+      });
+    }
+
     const server = app.listen(port, () => {
       logger.info('Server started successfully.', {
         port,
@@ -24,6 +34,7 @@ async function startServer() {
 
     const shutdown = (signal) => {
       logger.info('Shutdown signal received.', { signal });
+      stopGitCacheCleanupService();
       server.close(() => {
         logger.info('HTTP server closed.', { signal });
         closeLogger();

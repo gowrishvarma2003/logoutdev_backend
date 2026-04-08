@@ -2,6 +2,8 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { ensureRepoParentDirectory } = require('./gitPath');
 const { ensureRepositoryHooks } = require('./gitHooks');
+const { syncRepoToSupabase } = require('./gitSupabaseStorage');
+const { withRepoLease, markRepoDirty, clearRepoDirty } = require('./gitCacheState');
 
 const execFileAsync = promisify(execFile);
 const README_CANDIDATES = ['README.md', 'README', 'readme.md', 'Readme.md'];
@@ -80,15 +82,24 @@ async function hashBlobInBareRepo(repoPath, content) {
   });
 }
 
+async function syncAndFinalizeMutation(repoPath, options = {}) {
+  await syncRepoToSupabase(repoPath, options);
+  await clearRepoDirty(repoPath);
+}
+
 async function initializeBareRepository(repoPath, defaultBranch = 'main') {
   await ensureRepoParentDirectory();
   await execGit(['init', '--bare', repoPath]);
   await execGit(['--git-dir', repoPath, 'symbolic-ref', 'HEAD', `refs/heads/${defaultBranch}`]);
+  await markRepoDirty(repoPath);
   await ensureRepositoryHooks(repoPath);
+  await syncAndFinalizeMutation(repoPath);
 }
 
 async function setDefaultBranch(repoPath, defaultBranch) {
   await execGit(['--git-dir', repoPath, 'symbolic-ref', 'HEAD', `refs/heads/${defaultBranch}`]);
+  await markRepoDirty(repoPath);
+  await syncAndFinalizeMutation(repoPath);
 }
 
 async function repoHasCommits(repoPath, ref = 'HEAD') {
@@ -441,6 +452,8 @@ async function createBranch(repoPath, name, startPoint = 'HEAD') {
   if (!isSafeRef(name)) throw new Error('Invalid branch name.');
   if (!isSafeRef(startPoint)) throw new Error('Invalid start point.');
   await execGit(['--git-dir', repoPath, 'branch', name, startPoint]);
+  await markRepoDirty(repoPath);
+  await syncAndFinalizeMutation(repoPath);
   return { name, start_point: startPoint };
 }
 
@@ -479,6 +492,8 @@ async function deleteBranch(repoPath, name) {
   }
 
   await execGit(['--git-dir', repoPath, 'branch', '-D', name]);
+  await markRepoDirty(repoPath);
+  await syncAndFinalizeMutation(repoPath);
   return { deleted: true };
 }
 
@@ -520,12 +535,16 @@ async function createTag(repoPath, name, ref = 'HEAD', message = null) {
     args.push(name, ref);
   }
   await execGit(args);
+  await markRepoDirty(repoPath);
+  await syncAndFinalizeMutation(repoPath);
   return { name, ref };
 }
 
 async function deleteTag(repoPath, name) {
   if (!isSafeRef(name)) throw new Error('Invalid tag name.');
   await execGit(['--git-dir', repoPath, 'tag', '-d', name]);
+  await markRepoDirty(repoPath);
+  await syncAndFinalizeMutation(repoPath);
   return { deleted: true };
 }
 
@@ -681,6 +700,8 @@ async function writeFileContent(repoPath, ref, filePath, content, message, autho
 
     // Update the branch ref
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
+    await markRepoDirty(repoPath);
+    await syncAndFinalizeMutation(repoPath);
 
     return { oid: newCommit, path: normalizedPath };
   } finally {
@@ -764,6 +785,8 @@ async function writeFilesBatch(repoPath, ref, files, message, author, options = 
     const { stdout: newCommitStdout } = await execFileP('git', commitArgs, { env: commitEnv });
     const newCommit = String(newCommitStdout).trim();
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
+    await markRepoDirty(repoPath);
+    await syncAndFinalizeMutation(repoPath);
 
     return {
       oid: newCommit,
@@ -826,6 +849,8 @@ async function deleteFileByPath(repoPath, ref, filePath, message, author) {
     const newCommit = String(newCommitStdout).trim();
 
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
+    await markRepoDirty(repoPath);
+    await syncAndFinalizeMutation(repoPath);
 
     return { oid: newCommit, path: normalizedPath };
   } finally {
@@ -839,6 +864,8 @@ async function forkRepository(sourceRepoPath, destRepoPath) {
   await ensureRepoParentDirectory();
   await execGit(['clone', '--bare', sourceRepoPath, destRepoPath]);
   await ensureRepositoryHooks(destRepoPath);
+  await markRepoDirty(destRepoPath);
+  await syncAndFinalizeMutation(destRepoPath);
 }
 
 async function fetchRefIntoRepo(targetRepoPath, sourceRepoPath, sourceRef, destRef) {
@@ -850,6 +877,8 @@ async function fetchRefIntoRepo(targetRepoPath, sourceRepoPath, sourceRef, destR
     sourceRepoPath,
     `${sourceRef}:${destRef}`,
   ], { maxBuffer: 20 * 1024 * 1024 });
+  await markRepoDirty(targetRepoPath);
+  await syncAndFinalizeMutation(targetRepoPath);
   return destRef;
 }
 
@@ -1024,41 +1053,47 @@ async function mergeBranches(repoPath, baseBranch, topicBranch, options = {}) {
 
   // Update the base branch to point to new commit
   await execGit(['--git-dir', repoPath, 'update-ref', baseRef, newCommitId]);
+  await markRepoDirty(repoPath);
+  await syncAndFinalizeMutation(repoPath);
 
   return newCommitId;
+}
+
+function wrapWithRepoLease(operation) {
+  return async (repoPath, ...rest) => withRepoLease(repoPath, () => operation(repoPath, ...rest));
 }
 
 module.exports = {
   isSafeRef,
   normalizeRepoPath,
   isMissingTreePathError,
-  initializeBareRepository,
-  setDefaultBranch,
-  listTree,
-  listTreeRecursive,
-  readBlob,
-  findReadme,
-  listCommits,
-  getRefOid,
-  repoHasCommits,
-  searchCode,
-  listBranches,
-  branchExists,
-  createBranch,
-  ensureBranch,
-  deleteBranch,
-  listTags,
-  createTag,
-  deleteTag,
-  getCommitDetail,
-  writeFileContent,
-  writeFilesBatch,
-  deleteFileByPath,
-  forkRepository,
-  fetchRefIntoRepo,
-  compareRefs,
-  getMergeability,
-  getDiffBetweenRefs,
-  listCommitsBetween,
-  mergeBranches,
+  initializeBareRepository: wrapWithRepoLease(initializeBareRepository),
+  setDefaultBranch: wrapWithRepoLease(setDefaultBranch),
+  listTree: wrapWithRepoLease(listTree),
+  listTreeRecursive: wrapWithRepoLease(listTreeRecursive),
+  readBlob: wrapWithRepoLease(readBlob),
+  findReadme: wrapWithRepoLease(findReadme),
+  listCommits: wrapWithRepoLease(listCommits),
+  getRefOid: wrapWithRepoLease(getRefOid),
+  repoHasCommits: wrapWithRepoLease(repoHasCommits),
+  searchCode: wrapWithRepoLease(searchCode),
+  listBranches: wrapWithRepoLease(listBranches),
+  branchExists: wrapWithRepoLease(branchExists),
+  createBranch: wrapWithRepoLease(createBranch),
+  ensureBranch: wrapWithRepoLease(ensureBranch),
+  deleteBranch: wrapWithRepoLease(deleteBranch),
+  listTags: wrapWithRepoLease(listTags),
+  createTag: wrapWithRepoLease(createTag),
+  deleteTag: wrapWithRepoLease(deleteTag),
+  getCommitDetail: wrapWithRepoLease(getCommitDetail),
+  writeFileContent: wrapWithRepoLease(writeFileContent),
+  writeFilesBatch: wrapWithRepoLease(writeFilesBatch),
+  deleteFileByPath: wrapWithRepoLease(deleteFileByPath),
+  forkRepository: wrapWithRepoLease(forkRepository),
+  fetchRefIntoRepo: wrapWithRepoLease(fetchRefIntoRepo),
+  compareRefs: wrapWithRepoLease(compareRefs),
+  getMergeability: wrapWithRepoLease(getMergeability),
+  getDiffBetweenRefs: wrapWithRepoLease(getDiffBetweenRefs),
+  listCommitsBetween: wrapWithRepoLease(listCommitsBetween),
+  mergeBranches: wrapWithRepoLease(mergeBranches),
 };

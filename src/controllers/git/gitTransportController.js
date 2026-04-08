@@ -4,6 +4,8 @@ const { verifyAccessToken, tokenHasScope } = require('../../services/auth/access
 const { streamGitHttpBackend } = require('../../services/git/gitHttpBackend');
 const { resolveRepoPath } = require('../../services/git/gitPath');
 const { ensureRepositoryHooks } = require('../../services/git/gitHooks');
+const { syncRepoToSupabase } = require('../../services/git/gitSupabaseStorage');
+const { withRepoLease, markRepoDirty, clearRepoDirty } = require('../../services/git/gitCacheState');
 
 function getRouteParams(req) {
   if (req.params?.repoId) {
@@ -87,10 +89,12 @@ async function handleGitTransport(req, res) {
 
     if (!credentials && serviceMode === 'read' && repo.visibility === 'public') {
       const repoPath = await resolveRepoPath(repo.id, repo.space_id);
-      return streamGitHttpBackend(req, res, {
-        gitProjectRoot: path.dirname(repoPath),
-        pathInfo: `/${path.basename(repoPath)}${rest ? `/${rest}` : ''}`,
-        remoteUser: 'anonymous',
+      return withRepoLease(repoPath, async () => {
+        await streamGitHttpBackend(req, res, {
+          gitProjectRoot: path.dirname(repoPath),
+          pathInfo: `/${path.basename(repoPath)}${rest ? `/${rest}` : ''}`,
+          remoteUser: 'anonymous',
+        });
       });
     }
 
@@ -127,14 +131,32 @@ async function handleGitTransport(req, res) {
 
     const repoPath = await resolveRepoPath(repo.id, repo.space_id);
     await ensureRepositoryHooks(repoPath);
-    return streamGitHttpBackend(req, res, {
-      gitProjectRoot: path.dirname(repoPath),
-      pathInfo: `/${path.basename(repoPath)}${rest ? `/${rest}` : ''}`,
-      remoteUser: credentials.username || repo.owner?.username || verified.userId,
-      extraEnv: {
-        LOGOUTDEV_REPO_ID: repo.id,
-        LOGOUTDEV_ACTOR_ID: verified.userId,
-      },
+    return withRepoLease(repoPath, async () => {
+      if (serviceMode === 'write') {
+        await markRepoDirty(repoPath);
+      }
+
+      await streamGitHttpBackend(req, res, {
+        gitProjectRoot: path.dirname(repoPath),
+        pathInfo: `/${path.basename(repoPath)}${rest ? `/${rest}` : ''}`,
+        remoteUser: credentials.username || repo.owner?.username || verified.userId,
+        extraEnv: {
+          LOGOUTDEV_REPO_ID: repo.id,
+          LOGOUTDEV_ACTOR_ID: verified.userId,
+        },
+        onComplete: serviceMode === 'write'
+          ? async ({ code }) => {
+              if (Number(code) !== 0) {
+                return;
+              }
+              await syncRepoToSupabase(repoPath, {
+                repoId: repo.id,
+                spaceId: repo.space_id,
+              });
+              await clearRepoDirty(repoPath);
+            }
+          : null,
+      });
     });
   } catch (error) {
     return res.status(500).json({ error: 'Git transport failed.' });
