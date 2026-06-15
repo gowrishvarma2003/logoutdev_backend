@@ -28,6 +28,7 @@ const {
 } = require('../../services/spaces/spaceValidation');
 const { parsePagination } = require('../../services/spaces/pagination');
 const { getMatchingBranchProtectionRule } = require('../../services/repos/repoGovernance');
+const { listRepositorySummaries } = require('../../services/repos/repoListingService');
 const { getRepoPath, resolveRepoPath } = require('../../services/git/gitPath');
 const { initializeBareRepository, setDefaultBranch, listTree, isSafeRef } = require('../../services/git/gitShell');
 
@@ -206,61 +207,24 @@ async function listRepositories(req, res) {
     const visibility = asTrimmedString(req.query.visibility || '');
     const attached = req.query.attached;
     const q = asTrimmedString(req.query.q || '').toLowerCase();
+    const stack = asTrimmedString(req.query.stack || req.query.language || '');
+    const language = asTrimmedString(req.query.language || '');
+    const sort = asTrimmedString(req.query.sort || 'updated');
     const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
 
-    let repos = await ProjectSpaceRepo.findAll({
-      where: { archived_at: null },
-      include: [
-        { model: ProjectSpace, as: 'space', required: false },
-        { model: User, as: 'owner', attributes: ['id', 'name', 'email', 'username'], required: false },
-        requesterId
-          ? {
-              model: ProjectSpaceRepoMember,
-              as: 'members',
-              where: { user_id: requesterId },
-              required: false,
-            }
-          : null,
-      ].filter(Boolean),
-      order: [['updated_at', 'DESC'], ['created_at', 'DESC']],
-    });
-
-    if (q) {
-      repos = repos.filter((repo) => {
-        const haystack = [repo.name, repo.description, repo.slug, repo.owner?.username]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(q);
-      });
-    }
-
-    const visible = [];
-    for (const repo of repos) {
-      // eslint-disable-next-line no-await-in-loop
-      const access = await getAccessContext(repo, requesterId);
-      const isMine = requesterId && repo.owner_id === requesterId;
-      const isShared = requesterId && !isMine && access.canRead;
-      const isPublic = repo.visibility === 'public';
-
-      if (!access.canRead) continue;
-      if (visibility && (!isAllowedValue(visibility, REPO_VISIBILITIES) || repo.visibility !== visibility)) continue;
-      if (attached === 'true' && !repo.space_id) continue;
-      if (attached === 'false' && repo.space_id) continue;
-      if (scope === 'mine' && !isMine) continue;
-      if (scope === 'shared' && !isShared) continue;
-      if (scope === 'public' && !isPublic) continue;
-
-      visible.push(await serializeRepo(repo, requesterId));
-    }
-
-    const offset = (page - 1) * limit;
-    return res.json({
-      repos: visible.slice(offset, offset + limit),
-      total: visible.length,
+    return res.json(await listRepositorySummaries({
+      requesterId,
+      scope,
+      visibility,
+      attached,
+      q,
+      stack,
+      language,
+      sort,
       page,
       limit,
-    });
+      offset: (page - 1) * limit,
+    }));
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch repositories.' });
   }

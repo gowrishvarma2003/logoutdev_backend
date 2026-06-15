@@ -765,6 +765,12 @@ async function ensureRepoColumns() {
   await addIndexSafe('project_space_repos', ['visibility'], {
     name: 'project_space_repos_visibility',
   });
+  await addIndexSafe('project_space_repos', ['visibility', 'archived_at', 'updated_at'], {
+    name: 'project_space_repos_visibility_archived_updated',
+  });
+  await addIndexSafe('project_space_repos', ['owner_id', 'archived_at', 'updated_at'], {
+    name: 'project_space_repos_owner_archived_updated',
+  });
 }
 
 async function ensureRepoMemberColumns() {
