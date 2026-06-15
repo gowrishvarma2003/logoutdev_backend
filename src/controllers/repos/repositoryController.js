@@ -28,6 +28,7 @@ const {
 } = require('../../services/spaces/spaceValidation');
 const { parsePagination } = require('../../services/spaces/pagination');
 const { getMatchingBranchProtectionRule } = require('../../services/repos/repoGovernance');
+const { analyzeRepositoryLanguages } = require('../../services/repos/repoLanguage');
 const { getRepoPath, resolveRepoPath } = require('../../services/git/gitPath');
 const { initializeBareRepository, setDefaultBranch, listTree, isSafeRef } = require('../../services/git/gitShell');
 
@@ -99,6 +100,7 @@ async function serializeRepo(repo, userId = null, options = {}) {
     watchRecord,
     forkRelation,
     defaultBranchRule,
+    languageSummary,
   ] = await Promise.all([
     RepoStar.count({ where: { repo_id: repo.id } }),
     RepoWatch.count({ where: { repo_id: repo.id } }),
@@ -120,6 +122,7 @@ async function serializeRepo(repo, userId = null, options = {}) {
       ],
     }),
     includeGovernance ? getMatchingBranchProtectionRule(repo.id, repo.default_branch) : Promise.resolve(null),
+    analyzeRepositoryLanguages(repo),
   ]);
 
   return {
@@ -145,6 +148,8 @@ async function serializeRepo(repo, userId = null, options = {}) {
     star_count: starCount,
     watcher_count: watcherCount,
     fork_count: forkCount,
+    language: languageSummary.language,
+    languages: languageSummary.languages,
     is_starred: Boolean(starRecord),
     is_watching: Boolean(watchRecord),
     watch_level: watchRecord?.level || null,

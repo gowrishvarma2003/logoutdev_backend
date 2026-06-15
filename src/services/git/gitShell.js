@@ -116,6 +116,27 @@ function parseLsTree(buffer, basePath) {
   });
 }
 
+function parseRecursiveLsTree(buffer) {
+  const text = buffer.toString('utf8');
+  const lines = text.split('\n').filter(Boolean);
+
+  return lines.map((line) => {
+    const [meta, filePath] = line.split('\t');
+    const [mode, type, oid, sizeToken] = meta.trim().split(/\s+/);
+    const size = type === 'blob' && sizeToken && sizeToken !== '-' ? Number(sizeToken) : 0;
+    const segments = filePath.split('/');
+
+    return {
+      path: filePath,
+      name: segments[segments.length - 1],
+      type,
+      mode,
+      oid,
+      size: Number.isFinite(size) ? size : 0,
+    };
+  });
+}
+
 async function listTree(repoPath, ref, treePath = '') {
   const normalizedRef = ref || 'HEAD';
   const normalizedPath = normalizeRepoPath(treePath);
@@ -132,6 +153,22 @@ async function listTree(repoPath, ref, treePath = '') {
   const target = normalizedPath ? `${normalizedRef}:${normalizedPath}` : normalizedRef;
   const output = await execGit(['--git-dir', repoPath, 'ls-tree', target], { encoding: 'buffer' });
   return parseLsTree(output, normalizedPath);
+}
+
+async function listTreeRecursive(repoPath, ref) {
+  const normalizedRef = ref || 'HEAD';
+
+  if (!isSafeRef(normalizedRef)) {
+    throw new Error('Invalid ref.');
+  }
+
+  const hasCommits = await repoHasCommits(repoPath, normalizedRef);
+  if (!hasCommits) {
+    return [];
+  }
+
+  const output = await execGit(['--git-dir', repoPath, 'ls-tree', '-r', '--long', normalizedRef], { encoding: 'buffer' });
+  return parseRecursiveLsTree(output);
 }
 
 async function readBlob(repoPath, ref, blobPath) {
@@ -769,6 +806,7 @@ module.exports = {
   initializeBareRepository,
   setDefaultBranch,
   listTree,
+  listTreeRecursive,
   readBlob,
   findReadme,
   listCommits,
