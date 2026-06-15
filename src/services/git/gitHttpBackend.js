@@ -88,7 +88,11 @@ function streamGitHttpBackend(req, res, options) {
     res.end();
   });
 
-  backend.on('close', (code) => {
+  backend.on('close', async (code) => {
+    if (typeof options.onClose === 'function') {
+      await options.onClose(code).catch(() => null);
+    }
+
     if (!headersSent && !res.headersSent) {
       res.status(code === 0 ? 200 : 500).end();
       return;

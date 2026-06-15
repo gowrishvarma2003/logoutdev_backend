@@ -4,6 +4,7 @@ const { verifyAccessToken, tokenHasScope } = require('../../services/auth/access
 const { streamGitHttpBackend } = require('../../services/git/gitHttpBackend');
 const { resolveRepoPath } = require('../../services/git/gitPath');
 const { ensureRepositoryHooks } = require('../../services/git/gitHooks');
+const { syncRepoToR2 } = require('../../services/git/r2Storage');
 
 function getRouteParams(req) {
   if (req.params?.repoId) {
@@ -135,6 +136,11 @@ async function handleGitTransport(req, res) {
         LOGOUTDEV_REPO_ID: repo.id,
         LOGOUTDEV_ACTOR_ID: verified.userId,
       },
+      onClose: serviceMode === 'write'
+        ? async (code) => {
+            if (code === 0) await syncRepoToR2(repoPath);
+          }
+        : null,
     });
   } catch (error) {
     return res.status(500).json({ error: 'Git transport failed.' });

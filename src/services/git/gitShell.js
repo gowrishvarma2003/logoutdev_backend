@@ -2,6 +2,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { ensureRepoParentDirectory } = require('./gitPath');
 const { ensureRepositoryHooks } = require('./gitHooks');
+const { syncRepoToR2 } = require('./r2Storage');
 
 const execFileAsync = promisify(execFile);
 const README_CANDIDATES = ['README.md', 'README', 'readme.md', 'Readme.md'];
@@ -78,10 +79,12 @@ async function initializeBareRepository(repoPath, defaultBranch = 'main') {
   await execGit(['init', '--bare', repoPath]);
   await execGit(['--git-dir', repoPath, 'symbolic-ref', 'HEAD', `refs/heads/${defaultBranch}`]);
   await ensureRepositoryHooks(repoPath);
+  await syncRepoToR2(repoPath);
 }
 
 async function setDefaultBranch(repoPath, defaultBranch) {
   await execGit(['--git-dir', repoPath, 'symbolic-ref', 'HEAD', `refs/heads/${defaultBranch}`]);
+  await syncRepoToR2(repoPath);
 }
 
 async function repoHasCommits(repoPath, ref = 'HEAD') {
@@ -274,6 +277,7 @@ async function createBranch(repoPath, name, startPoint = 'HEAD') {
   if (!isSafeRef(name)) throw new Error('Invalid branch name.');
   if (!isSafeRef(startPoint)) throw new Error('Invalid start point.');
   await execGit(['--git-dir', repoPath, 'branch', name, startPoint]);
+  await syncRepoToR2(repoPath);
   return { name, start_point: startPoint };
 }
 
@@ -292,6 +296,7 @@ async function deleteBranch(repoPath, name) {
   }
 
   await execGit(['--git-dir', repoPath, 'branch', '-D', name]);
+  await syncRepoToR2(repoPath);
   return { deleted: true };
 }
 
@@ -333,12 +338,14 @@ async function createTag(repoPath, name, ref = 'HEAD', message = null) {
     args.push(name, ref);
   }
   await execGit(args);
+  await syncRepoToR2(repoPath);
   return { name, ref };
 }
 
 async function deleteTag(repoPath, name) {
   if (!isSafeRef(name)) throw new Error('Invalid tag name.');
   await execGit(['--git-dir', repoPath, 'tag', '-d', name]);
+  await syncRepoToR2(repoPath);
   return { deleted: true };
 }
 
@@ -494,6 +501,7 @@ async function writeFileContent(repoPath, ref, filePath, content, message, autho
 
     // Update the branch ref
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
+    await syncRepoToR2(repoPath);
 
     return { oid: newCommit, path: normalizedPath };
   } finally {
@@ -550,6 +558,7 @@ async function deleteFileByPath(repoPath, ref, filePath, message, author) {
     const newCommit = String(newCommitStdout).trim();
 
     await execGit(['--git-dir', repoPath, 'update-ref', branchRef, newCommit]);
+    await syncRepoToR2(repoPath);
 
     return { oid: newCommit, path: normalizedPath };
   } finally {
@@ -563,6 +572,7 @@ async function forkRepository(sourceRepoPath, destRepoPath) {
   await ensureRepoParentDirectory();
   await execGit(['clone', '--bare', sourceRepoPath, destRepoPath]);
   await ensureRepositoryHooks(destRepoPath);
+  await syncRepoToR2(destRepoPath);
 }
 
 async function fetchRefIntoRepo(targetRepoPath, sourceRepoPath, sourceRef, destRef) {
@@ -748,6 +758,7 @@ async function mergeBranches(repoPath, baseBranch, topicBranch, options = {}) {
 
   // Update the base branch to point to new commit
   await execGit(['--git-dir', repoPath, 'update-ref', baseRef, newCommitId]);
+  await syncRepoToR2(repoPath);
 
   return newCommitId;
 }

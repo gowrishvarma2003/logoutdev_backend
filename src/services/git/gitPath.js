@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { hydrateRepoFromR2, isR2Enabled } = require('./r2Storage');
 
 function isWindowsAbsolutePath(value) {
   return /^[A-Za-z]:[\\/]/.test(value);
@@ -39,8 +40,16 @@ async function resolveRepoPath(repoId, spaceId = null) {
     await fs.promises.access(modernPath);
     return modernPath;
   } catch (error) {
+    if (isR2Enabled() && await hydrateRepoFromR2(modernPath)) {
+      return modernPath;
+    }
+
     if (spaceId) {
-      return getLegacyRepoPath(spaceId, repoId);
+      const legacyPath = getLegacyRepoPath(spaceId, repoId);
+      if (isR2Enabled()) {
+        await hydrateRepoFromR2(legacyPath);
+      }
+      return legacyPath;
     }
     return modernPath;
   }
