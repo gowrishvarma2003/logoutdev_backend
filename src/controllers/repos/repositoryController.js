@@ -32,7 +32,7 @@ const { getMatchingBranchProtectionRule } = require('../../services/repos/repoGo
 const { analyzeRepositoryLanguages } = require('../../services/repos/repoLanguage');
 const { listRepositorySummaries } = require('../../services/repos/repoListingService');
 const { getRepoPath, resolveRepoPath } = require('../../services/git/gitPath');
-const { initializeBareRepository, setDefaultBranch, listTree, isSafeRef } = require('../../services/git/gitShell');
+const { initializeBareRepository, setDefaultBranch, listTree, listBranches, isSafeRef } = require('../../services/git/gitShell');
 const { permanentlyDeleteRepository } = require('../../services/repos/repoDeletionService');
 
 const COMMUNITY_FILE_LABELS = {
@@ -143,6 +143,11 @@ async function serializeRepo(repo, userId = null, options = {}) {
     can_merge: access.permissions.can_merge,
     can_manage_rules: access.permissions.can_manage_rules,
     can_manage_access: access.permissions.can_manage_access,
+    can_manage_general: access.permissions.can_manage_general,
+    can_manage_releases: access.permissions.can_manage_releases,
+    can_manage_branches: access.permissions.can_manage_branches,
+    can_manage_default_branch: access.permissions.can_manage_default_branch,
+    can_comment: access.permissions.can_comment,
     can_archive: access.permissions.can_archive,
     can_delete: access.permissions.can_delete,
     attached_space: buildAttachedSpace(repo),
@@ -389,6 +394,13 @@ async function updateRepository(req, res) {
       if (!defaultBranch || !isSafeRef(defaultBranch)) {
         return res.status(400).json({ error: 'Invalid default branch.' });
       }
+
+      const repoPath = await resolveRepoPath(repo.id, repo.space_id);
+      const branches = await listBranches(repoPath);
+      if (branches.length > 0 && !branches.some((branch) => branch.name === defaultBranch)) {
+        return res.status(400).json({ error: 'Default branch must be an existing branch.' });
+      }
+
       updates.default_branch = defaultBranch;
     }
 

@@ -43,7 +43,8 @@ async function followUser(req, res) {
       where: { follower_id: followerId, following_id: followingId },
     });
 
-    return res.json({ following: true });
+    const followerCount = await Follow.count({ where: { following_id: followingId } });
+    return res.json({ following: true, follower_count: followerCount });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to follow user.' });
   }
@@ -62,7 +63,8 @@ async function unfollowUser(req, res) {
       where: { follower_id: followerId, following_id: followingId },
     });
 
-    return res.json({ following: false });
+    const followerCount = await Follow.count({ where: { following_id: followingId } });
+    return res.json({ following: false, follower_count: followerCount });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to unfollow user.' });
   }

@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const {
   User,
+  Follow,
   UserProfileSkill,
   Post,
   ProjectSpace,
@@ -175,7 +176,7 @@ async function fetchBuilders(filters) {
       continue;
     }
 
-    const [launchCount, lookingLaunchCount, activeProjects, postsCount, latestLaunch] = await Promise.all([
+    const [launchCount, lookingLaunchCount, activeProjects, postsCount, latestLaunch, followerCount, followRecord] = await Promise.all([
       Launch.count({ where: { builder_id: user.id, status: 'published' } }),
       Launch.count({ where: { builder_id: user.id, status: 'published', collaboration_mode: 'looking' } }),
       ProjectSpaceMember.count({ where: { user_id: user.id }, distinct: true, col: 'space_id' }),
@@ -185,6 +186,13 @@ async function fetchBuilders(filters) {
         attributes: ['published_at', 'updated_at'],
         order: [['published_at', 'DESC'], ['updated_at', 'DESC']],
       }),
+      Follow.count({ where: { following_id: user.id } }),
+      filters.userId
+        ? Follow.findOne({
+            where: { follower_id: filters.userId, following_id: user.id },
+            attributes: ['id'],
+          })
+        : Promise.resolve(null),
     ]);
 
     if (!filters.q && !filters.stack && !filters.tag && launchCount === 0 && activeProjects === 0 && postsCount === 0) {
@@ -218,6 +226,9 @@ async function fetchBuilders(filters) {
         eyebrow: 'Builder',
         byline: user.username ? `@${user.username}` : user.email,
         stats: `${launchCount} launches • ${activeProjects} spaces • ${postsCount} posts`,
+        follower_count: followerCount,
+        is_following: Boolean(followRecord),
+        can_follow: Boolean(filters.userId && filters.userId !== user.id),
         updated_at: recentActivityAt,
         collaboration_label: lookingLaunchCount > 0 ? 'Seeking collaborators' : null,
         proof_of_work_band: proofBand,

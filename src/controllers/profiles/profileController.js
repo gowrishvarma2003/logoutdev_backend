@@ -101,6 +101,7 @@ async function getProfile(req, res) {
       skills,
       metrics,
       related_entities,
+      followRecord,
     ] = await Promise.all([
       UserProfileSkill.findAll({
         where: { user_id: profileUser.id },
@@ -108,6 +109,12 @@ async function getProfile(req, res) {
       }),
       getUserProfileMetrics(profileUser.id),
       getProfileGraph(profileUser.id),
+      requesterId && requesterId !== profileUser.id
+        ? Follow.findOne({
+            where: { follower_id: requesterId, following_id: profileUser.id },
+            attributes: ['id'],
+          })
+        : Promise.resolve(null),
     ]);
 
     const featuredWhere = canViewPrivate
@@ -132,6 +139,7 @@ async function getProfile(req, res) {
     return res.json({
       profile: buildPublicProfile(profileUser),
       is_me: requesterId === profileUser.id,
+      is_following: Boolean(followRecord),
       stats: metrics.stats,
       skills: skills.map((skill) => skill.toJSON()),
       featured_projects: featuredProjects.map((item) => ({
