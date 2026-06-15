@@ -7,6 +7,7 @@ const {
 const { getAccessContext } = require('./repoAccess');
 const { resolveRepoPath } = require('../git/gitPath');
 const { listTree } = require('../git/gitShell');
+const { analyzeRepositoryLanguages } = require('../repos/repoLanguage');
 
 const COMMUNITY_FILE_LABELS = {
   'README.md': 'README',
@@ -40,6 +41,7 @@ async function serializeAttachment(attachment, userId = null) {
   if (attachment.repo) {
     const access = await getAccessContext(attachment.repo, userId);
     if (!access.canRead) return null;
+    const languageSummary = await analyzeRepositoryLanguages(attachment.repo);
 
     return {
       id: attachment.id,
@@ -52,6 +54,8 @@ async function serializeAttachment(attachment, userId = null) {
       repo: {
         ...attachment.repo.toJSON(),
         my_role: access.my_role,
+        language: languageSummary.language,
+        languages: languageSummary.languages,
         community_files: await buildCommunityFiles(attachment.repo),
       },
     };
