@@ -3,6 +3,7 @@ const {
   createUser,
   findUserByEmail,
   findUserById,
+  updatePassword,
   sanitizeUser,
 } = require('../../services/auth/userStore');
 const { createAuthToken } = require('../../utils/token');
@@ -98,4 +99,25 @@ async function getCurrentUser(req, res) {
   }
 }
 
-module.exports = { register, login, getCurrentUser };
+async function resetPassword(req, res) {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'Email and new password are required.' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const updated = await updatePassword(email.trim().toLowerCase(), passwordHash);
+
+    if (!updated) {
+      return res.status(404).json({ error: 'No account found with that email.' });
+    }
+
+    return res.json({ message: 'Password reset successfully.' });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to reset password.' });
+  }
+}
+
+module.exports = { register, login, getCurrentUser, resetPassword };

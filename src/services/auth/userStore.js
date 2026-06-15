@@ -98,6 +98,16 @@ async function createUser({ email, passwordHash, name, username }) {
   };
 }
 
+async function updatePassword(email, passwordHash) {
+  const user = await User.findOne({ where: { email } });
+  if (!user) return null;
+
+  user.password_hash = passwordHash;
+  await user.save();
+
+  return true;
+}
+
 function sanitizeUser(user) {
   return {
     id: user.id,
@@ -119,5 +129,6 @@ module.exports = {
   createUser,
   findUserByEmail,
   findUserById,
+  updatePassword,
   sanitizeUser,
 };
