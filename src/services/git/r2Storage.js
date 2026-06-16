@@ -191,12 +191,37 @@ async function syncRepoToR2(repoPath) {
   return true;
 }
 
+async function deleteRepoFromR2(repoPath) {
+  if (!isR2Enabled()) return false;
+
+  const config = getR2Config();
+  const r2 = getClient();
+  const remoteKeys = await listRemoteObjects(repoPath);
+
+  for (let index = 0; index < remoteKeys.length; index += 1000) {
+    const batch = remoteKeys.slice(index, index + 1000);
+    if (batch.length === 0) continue;
+
+    await r2.send(new DeleteObjectsCommand({
+      Bucket: config.bucket,
+      Delete: {
+        Objects: batch.map((Key) => ({ Key })),
+        Quiet: true,
+      },
+    }));
+  }
+
+  return true;
+}
+
 module.exports = {
   isR2Enabled,
   hydrateRepoFromR2,
   syncRepoToR2,
+  deleteRepoFromR2,
   _private: {
     getR2Config,
     getRepoPrefix,
+    listRemoteObjects,
   },
 };

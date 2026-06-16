@@ -6,7 +6,7 @@ const {
   createRepository,
   getRepository,
   updateRepository,
-  archiveRepository,
+  deleteRepository,
 } = require('../../controllers/repos/repositoryController');
 const {
   listRepoMembers,
@@ -138,7 +138,7 @@ router.use(authMiddleware);
 // Repo CRUD
 router.post('/', createRepository);
 router.patch('/:repoId', updateRepository);
-router.delete('/:repoId', archiveRepository);
+router.delete('/:repoId', deleteRepository);
 
 // Members
 router.get('/:repoId/members', listRepoMembers);

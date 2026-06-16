@@ -19,6 +19,7 @@ const {
   getAccessContext,
   ensureRepoCapability,
   ensureRepoReadable,
+  ensureRepoOwner,
 } = require('../../services/spaces/repoAccess');
 const {
   slugify,
@@ -32,6 +33,7 @@ const { analyzeRepositoryLanguages } = require('../../services/repos/repoLanguag
 const { listRepositorySummaries } = require('../../services/repos/repoListingService');
 const { getRepoPath, resolveRepoPath } = require('../../services/git/gitPath');
 const { initializeBareRepository, setDefaultBranch, listTree, isSafeRef } = require('../../services/git/gitShell');
+const { permanentlyDeleteRepository } = require('../../services/repos/repoDeletionService');
 
 const COMMUNITY_FILE_LABELS = {
   'README.md': 'README',
@@ -142,6 +144,7 @@ async function serializeRepo(repo, userId = null, options = {}) {
     can_manage_rules: access.permissions.can_manage_rules,
     can_manage_access: access.permissions.can_manage_access,
     can_archive: access.permissions.can_archive,
+    can_delete: access.permissions.can_delete,
     attached_space: buildAttachedSpace(repo),
     collaboration_home: buildCollaborationHome(repo, access),
     is_attached: Boolean(repo.space_id),
@@ -413,19 +416,16 @@ async function updateRepository(req, res) {
   }
 }
 
-async function archiveRepository(req, res) {
+async function deleteRepository(req, res) {
   try {
-    const result = await ensureRepoCapability(req.params.repoId, req.user.userId, res, 'can_archive');
+    const result = await ensureRepoOwner(req.params.repoId, req.user.userId, res);
     if (!result) return;
 
-    await result.repo.update({
-      archived_at: new Date(),
-      updated_at: new Date(),
-    });
+    await permanentlyDeleteRepository(result.repo);
 
-    return res.json({ archived: true });
+    return res.json({ deleted: true });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to archive repository.' });
+    return res.status(500).json({ error: 'Failed to delete repository.' });
   }
 }
 
@@ -434,6 +434,6 @@ module.exports = {
   createRepository,
   getRepository,
   updateRepository,
-  archiveRepository,
+  deleteRepository,
   serializeRepo,
 };

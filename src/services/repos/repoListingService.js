@@ -262,6 +262,7 @@ function serializeRepoSummary(repo, access, metrics = {}, recommendation = null)
     can_manage_rules: access.permissions.can_manage_rules,
     can_manage_access: access.permissions.can_manage_access,
     can_archive: access.permissions.can_archive,
+    can_delete: access.permissions.can_delete,
     can_manage_general: access.permissions.can_manage_general,
     can_manage_releases: access.permissions.can_manage_releases,
     can_manage_branches: access.permissions.can_manage_branches,
@@ -586,6 +587,7 @@ async function listRecommendedRepositories({ requesterId, filters, page, limit, 
   const baseWhere = {
     visibility: 'public',
     ...(requesterId ? { owner_id: { [Op.ne]: requesterId } } : {}),
+    id: { [Op.notIn]: literal('(SELECT "forked_repo_id" FROM "repo_forks")') },
   };
   const where = buildCommonWhere(baseWhere, { ...filters, visibility: 'public' });
   const rows = await ProjectSpaceRepo.findAll({
@@ -666,7 +668,7 @@ async function listRepositorySummaries({
       ],
     };
   } else if (normalizedScope === 'public') {
-    baseWhere = { visibility: 'public' };
+    baseWhere = { visibility: 'public', id: { [Op.notIn]: literal('(SELECT "forked_repo_id" FROM "repo_forks")') } };
   }
 
   const includeStack = Boolean(stack || language);

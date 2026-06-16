@@ -48,6 +48,7 @@ function buildRepoCapabilities({
   const canManageRules = roleMeets(effectiveRole, 'maintain');
   const canManageAccess = roleMeets(effectiveRole, 'admin');
   const canArchive = roleMeets(effectiveRole, 'admin');
+  const canDelete = Boolean(userId && repo.owner_id === userId);
 
   return {
     can_read: canRead,
@@ -58,6 +59,7 @@ function buildRepoCapabilities({
     can_manage_rules: canManageRules,
     can_manage_access: canManageAccess,
     can_archive: canArchive,
+    can_delete: canDelete,
     can_manage_general: roleMeets(effectiveRole, 'admin'),
     can_manage_releases: roleMeets(effectiveRole, 'write'),
     can_manage_branches: roleMeets(effectiveRole, 'write'),
@@ -196,6 +198,7 @@ function denyCapability(res, capability) {
     can_manage_rules: 'You do not have permission to manage branch protection for this repository.',
     can_manage_access: 'You do not have permission to manage repository access.',
     can_archive: 'You do not have permission to archive this repository.',
+    can_delete: 'Only the repository owner can delete this repository.',
     can_manage_general: 'You do not have permission to manage repository settings.',
   };
   const statusCode = capability === 'can_read' ? 404 : 403;
