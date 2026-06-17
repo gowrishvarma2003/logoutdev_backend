@@ -781,12 +781,37 @@ async function ensureRepoMemberColumns() {
   await ensureEnumValue('enum_project_space_repo_members_role', 'triage');
   await ensureEnumValue('enum_project_space_repo_members_role', 'maintain');
   await ensureEnumValue('enum_project_space_repo_members_role', 'admin');
+  await ensureEnumValue('enum_project_space_repo_members_status', 'pending');
+  await ensureEnumValue('enum_project_space_repo_members_status', 'accepted');
 
   if (table.role?.defaultValue === "'write'::enum_project_space_repo_members_role") {
     await queryInterface.changeColumn('project_space_repo_members', 'role', {
       type: DataTypes.ENUM('read', 'triage', 'write', 'maintain', 'admin'),
       allowNull: false,
       defaultValue: 'read',
+    });
+  }
+
+  if (!table.status) {
+    await queryInterface.addColumn('project_space_repo_members', 'status', {
+      type: DataTypes.ENUM('pending', 'accepted'),
+      allowNull: false,
+      defaultValue: 'accepted',
+    });
+  }
+
+  await sequelize.query(`
+    UPDATE project_space_repo_members
+    SET status = 'accepted'
+    WHERE status IS NULL
+  `);
+
+  const refreshedTable = await describeTableSafe('project_space_repo_members');
+  if (refreshedTable?.status?.defaultValue === "'accepted'::enum_project_space_repo_members_status") {
+    await queryInterface.changeColumn('project_space_repo_members', 'status', {
+      type: DataTypes.ENUM('pending', 'accepted'),
+      allowNull: false,
+      defaultValue: 'pending',
     });
   }
 }

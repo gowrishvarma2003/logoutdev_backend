@@ -648,14 +648,47 @@ async function buildAwardedWorkspaceSuggestion(userId) {
   };
 }
 
+async function buildRepoInvitationSuggestion(userId) {
+  const pendingCount = await ProjectSpaceRepoMember.count({
+    where: { user_id: userId, status: 'pending' },
+  });
+
+  if (pendingCount === 0) return null;
+
+  return {
+    type: 'repo_invitation',
+    title: 'Review repository invitations',
+    description: `${pendingCount} contributor invitation${pendingCount === 1 ? '' : 's'} waiting for you.`,
+    primary_cta: {
+      label: 'Review invites',
+      href: '/repos/invitations',
+    },
+    entity_ref: buildEntityRef({
+      type: 'repo',
+      id: 'repo-invitations',
+      title: 'Repository invitations',
+      href: '/repos/invitations',
+    }),
+  };
+}
+
 async function buildSuggestedActions(userId) {
-  const [launchAction, questionAction, joinRequestAction, spaceUpdateAction, proposalAction, workspaceAction] = await Promise.all([
+  const [
+    launchAction,
+    questionAction,
+    joinRequestAction,
+    spaceUpdateAction,
+    proposalAction,
+    workspaceAction,
+    repoInvitationAction,
+  ] = await Promise.all([
     buildLaunchReviewSuggestion(userId),
     buildQuestionSuggestion(userId),
     buildJoinRequestSuggestion(userId),
     buildSpaceUpdateSuggestion(userId),
     buildProposalSuggestion(userId),
     buildAwardedWorkspaceSuggestion(userId),
+    buildRepoInvitationSuggestion(userId),
   ]);
 
   return [
@@ -665,6 +698,7 @@ async function buildSuggestedActions(userId) {
     spaceUpdateAction,
     proposalAction,
     workspaceAction,
+    repoInvitationAction,
   ].filter(Boolean);
 }
 

@@ -26,6 +26,10 @@ function maxRole(...roles) {
     .sort((left, right) => roleRank(right) - roleRank(left))[0] || null;
 }
 
+function acceptedDirectRole(repoMembership) {
+  return repoMembership?.status === 'accepted' ? repoMembership.role : null;
+}
+
 function getSpaceInheritedRole(space, membership, userId) {
   if (!space || !userId) return null;
   if (space.owner_id === userId || membership?.role === 'owner') return 'admin';
@@ -164,7 +168,7 @@ async function getAccessContext(repo, userId) {
 
   const isOwner = Boolean(userId && repo.owner_id === userId);
   const inheritedRole = isOwner ? 'admin' : getSpaceInheritedRole(space, membership, userId);
-  const directRole = repoMembership?.role || null;
+  const directRole = acceptedDirectRole(repoMembership);
   const effectiveRole = maxRole(inheritedRole, directRole);
   const permissions = buildRepoCapabilities({
     repo,
@@ -317,6 +321,7 @@ module.exports = {
   roleRank,
   roleMeets,
   maxRole,
+  acceptedDirectRole,
   loadRepoWithRelations,
   getRepoOr404,
   getLegacyRepoOr404,

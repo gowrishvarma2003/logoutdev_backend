@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 process.env.DB_URL = process.env.DB_URL || 'postgres://localhost/logoutdev_test';
 
-const { roleMeets, maxRole } = require('../src/services/spaces/repoAccess');
+const { acceptedDirectRole, roleMeets, maxRole } = require('../src/services/spaces/repoAccess');
 const {
   branchPatternMatches,
   buildReviewSummary,
@@ -15,6 +15,12 @@ test('repo role ordering prefers the strongest role', () => {
   assert.equal(maxRole('read', 'maintain', 'triage'), 'maintain');
   assert.equal(roleMeets('maintain', 'write'), true);
   assert.equal(roleMeets('triage', 'write'), false);
+});
+
+test('pending repo memberships do not resolve to direct roles', () => {
+  assert.equal(acceptedDirectRole({ role: 'write', status: 'pending' }), null);
+  assert.equal(acceptedDirectRole({ role: 'write', status: 'accepted' }), 'write');
+  assert.equal(acceptedDirectRole(null), null);
 });
 
 test('branch patterns support exact names and wildcard segments', () => {
