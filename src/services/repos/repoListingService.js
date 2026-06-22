@@ -22,7 +22,7 @@ const { isAllowedValue, REPO_VISIBILITIES } = require('../spaces/spaceValidation
 
 const ACTIVE_SPACE_STATUSES = ['idea', 'building', 'shipping'];
 const OPEN_WORK_STATUSES = ['open', 'triaged', 'in-progress'];
-const VALID_SCOPES = ['all', 'mine', 'shared', 'public', 'recommended'];
+const VALID_SCOPES = ['all', 'mine', 'shared', 'starred', 'public', 'recommended'];
 const MAX_RECOMMENDATION_CANDIDATES = 500;
 
 function clamp(value, min, max) {
@@ -384,7 +384,7 @@ async function loadRepoMetrics(repoIds, requesterId = null) {
     countByRepo(RepoStar, repoIds),
     countByRepo(RepoWatch, repoIds),
     countByRepo(RepoFork, repoIds, 'source_repo_id'),
-    countByRepo(ProjectSpaceRepoMember, repoIds),
+    countByRepo(ProjectSpaceRepoMember, repoIds, 'repo_id', { status: 'accepted' }),
     countByRepo(PullRequest, repoIds, 'repo_id', { status: 'open' }),
     countByRepo(ProjectSpaceIssue, repoIds, 'repo_id', { status: { [Op.in]: OPEN_WORK_STATUSES } }),
     countByRepo(ProjectSpaceIssue, repoIds, 'repo_id', {
@@ -426,7 +426,7 @@ async function getReadableWhere(requesterId) {
 
   const [directMemberships, spaceMemberships, ownedSpaces] = await Promise.all([
     ProjectSpaceRepoMember.findAll({
-      where: { user_id: requesterId },
+      where: { user_id: requesterId, status: 'accepted' },
       attributes: ['repo_id'],
       raw: true,
     }),
@@ -661,10 +661,39 @@ async function listRepositorySummaries({
     if (!requesterId) {
       return { repos: [], total: 0, page, limit };
     }
+    const memberships = await ProjectSpaceRepoMember.findAll({
+      where: { user_id: requesterId, status: 'accepted' },
+      attributes: ['repo_id'],
+      raw: true,
+    });
+    const repoIds = memberships.map((row) => row.repo_id);
+    if (!repoIds.length) {
+      return { repos: [], total: 0, page, limit };
+    }
     baseWhere = {
       [Op.and]: [
         baseWhere,
         { owner_id: { [Op.ne]: requesterId } },
+        { id: { [Op.in]: repoIds } },
+      ],
+    };
+  } else if (normalizedScope === 'starred') {
+    if (!requesterId) {
+      return { repos: [], total: 0, page, limit };
+    }
+    const stars = await RepoStar.findAll({
+      where: { user_id: requesterId },
+      attributes: ['repo_id'],
+      raw: true,
+    });
+    const repoIds = stars.map((row) => row.repo_id);
+    if (!repoIds.length) {
+      return { repos: [], total: 0, page, limit };
+    }
+    baseWhere = {
+      [Op.and]: [
+        baseWhere,
+        { id: { [Op.in]: repoIds } },
       ],
     };
   } else if (normalizedScope === 'public') {
@@ -691,6 +720,7 @@ async function listRepositorySummaries({
 }
 
 module.exports = {
+  VALID_SCOPES,
   isRecommendationCandidate,
   listRepositorySummaries,
   scoreRepositoryRecommendation,

@@ -26,7 +26,7 @@ function userSummary(user) {
 async function buildCollaborators(repo) {
   const directMemberUserIds = await ProjectSpaceRepoMember.findAll({
     where: { repo_id: repo.id },
-    attributes: ['user_id', 'role', 'id', 'granted_by', 'created_at'],
+    attributes: ['user_id', 'role', 'status', 'id', 'granted_by', 'created_at'],
     raw: true,
   });
   const membershipLookup = repo.space_id && directMemberUserIds.length > 0
@@ -47,24 +47,28 @@ async function buildCollaborators(repo) {
   });
 
   const directByUserId = new Map(
-    directMembers.map((member) => [
-      member.user_id,
-      {
-        id: member.id,
-        user_id: member.user_id,
-        user: userSummary(member.user),
-        role: member.role,
-        direct_role: member.role,
-        inherited_role: null,
-        effective_role: member.role,
-        source: repo.space_id
-          ? (membershipByUserId.has(member.user_id) ? 'space_member_direct_grant' : 'outside_collaborator')
-          : 'direct_collaborator',
-        granted_by: member.granted_by,
-        created_at: member.created_at,
-        is_outside_collaborator: Boolean(repo.space_id && !membershipByUserId.has(member.user_id)),
-      },
-    ])
+    directMembers.map((member) => {
+      const isAccepted = member.status === 'accepted';
+      return [
+        member.user_id,
+        {
+          id: member.id,
+          user_id: member.user_id,
+          user: userSummary(member.user),
+          role: member.role,
+          direct_role: member.role,
+          inherited_role: null,
+          effective_role: isAccepted ? member.role : null,
+          status: member.status,
+          source: repo.space_id
+            ? (membershipByUserId.has(member.user_id) ? 'space_member_direct_grant' : 'outside_collaborator')
+            : 'direct_collaborator',
+          granted_by: member.granted_by,
+          created_at: member.created_at,
+          is_outside_collaborator: Boolean(repo.space_id && !membershipByUserId.has(member.user_id)),
+        },
+      ];
+    })
   );
 
   if (repo.space_id) {
@@ -80,15 +84,17 @@ async function buildCollaborators(repo) {
     for (const member of spaceMembers) {
       const inheritedRole = member.role === 'owner' ? 'admin' : 'maintain';
       const existing = directByUserId.get(member.user_id);
+      const acceptedDirectRole = existing?.status === 'accepted' ? existing.direct_role : null;
 
       directByUserId.set(member.user_id, {
         id: existing?.id || `inherited:${member.user_id}`,
         user_id: member.user_id,
         user: existing?.user || userSummary(member.user),
-        role: maxRole(existing?.direct_role || null, inheritedRole),
+        role: maxRole(acceptedDirectRole, inheritedRole),
         direct_role: existing?.direct_role || null,
         inherited_role: inheritedRole,
-        effective_role: maxRole(existing?.direct_role || null, inheritedRole),
+        effective_role: maxRole(acceptedDirectRole, inheritedRole),
+        status: existing?.status || 'accepted',
         source: member.role === 'owner' ? 'space_owner' : 'space_maintainer',
         granted_by: existing?.granted_by || null,
         created_at: existing?.created_at || member.joined_at,
@@ -98,7 +104,7 @@ async function buildCollaborators(repo) {
   }
 
   if (!directByUserId.has(repo.owner_id) && repo.owner) {
-    directByUserId.set(repo.owner_id, {
+      directByUserId.set(repo.owner_id, {
       id: `owner:${repo.owner_id}`,
       user_id: repo.owner_id,
       user: userSummary(repo.owner),
@@ -106,6 +112,7 @@ async function buildCollaborators(repo) {
       direct_role: null,
       inherited_role: 'admin',
       effective_role: 'admin',
+      status: 'accepted',
       source: 'repo_owner',
       granted_by: null,
       created_at: repo.created_at,

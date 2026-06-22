@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../../db/sequelize');
 
 const REPO_MEMBER_ROLES = ['read', 'triage', 'write', 'maintain', 'admin'];
+const REPO_MEMBER_STATUSES = ['pending', 'accepted'];
 
 const ProjectSpaceRepoMember = sequelize.define(
   'ProjectSpaceRepoMember',
@@ -23,6 +24,11 @@ const ProjectSpaceRepoMember = sequelize.define(
       type: DataTypes.ENUM(...REPO_MEMBER_ROLES),
       allowNull: false,
       defaultValue: 'read',
+    },
+    status: {
+      type: DataTypes.ENUM(...REPO_MEMBER_STATUSES),
+      allowNull: false,
+      defaultValue: 'pending',
     },
     granted_by: {
       type: DataTypes.UUID,

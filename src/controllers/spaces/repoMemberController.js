@@ -60,24 +60,30 @@ async function upsertRepoMember(req, res) {
       },
       defaults: {
         role,
+        status: 'pending',
         granted_by: req.user.userId,
       },
     });
 
     const previousRole = created ? null : member.role;
+    const previousStatus = member.status;
     if (!created) {
-      await member.update({ role, granted_by: req.user.userId });
+      await member.update({
+        role,
+        granted_by: req.user.userId,
+        status: previousStatus === 'accepted' ? 'accepted' : 'pending',
+      });
     }
 
     const refreshed = await ProjectSpaceRepoMember.findByPk(member.id, {
       include: [{ model: User, as: 'user', attributes: ['id', 'name', 'email', 'username'] }],
     });
 
-    if (created || previousRole !== role) {
+    if (member.status === 'pending' && (created || previousRole !== role || previousStatus !== member.status)) {
       await emitUserNotification({
         recipientUserId: req.params.userId,
         actorUserId: req.user.userId,
-        eventType: 'repo_access_granted',
+        eventType: 'repo_invitation_created',
         category: 'repo',
         priority: 'action',
         entityType: 'repo',
@@ -86,11 +92,11 @@ async function upsertRepoMember(req, res) {
           type: 'repo',
           id: result.repo.id,
           title: result.repo.name,
-          href: `/repos/${result.repo.id}`,
+          href: '/repos/invitations',
         }),
-        actionUrl: `/repos/${result.repo.id}`,
-        previewText: `granted you ${role} access to a repository`,
-        dedupeKey: `repo_access_granted:${result.repo.id}:${req.params.userId}:${role}`,
+        actionUrl: '/repos/invitations',
+        previewText: `invited you to contribute with ${role} access`,
+        dedupeKey: `repo_invitation_created:${result.repo.id}:${req.params.userId}:${role}`,
       });
     }
 

@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 process.env.DB_URL = process.env.DB_URL || 'postgres://localhost/logoutdev_test';
 
 const {
+  VALID_SCOPES,
   isRecommendationCandidate,
   scoreRepositoryRecommendation,
 } = require('../src/services/repos/repoListingService');
@@ -52,6 +53,11 @@ test('recommendation candidates exclude own, private, and archived repos', () =>
   assert.equal(isRecommendationCandidate(buildRepo({ owner_id: 'viewer-1' }), 'viewer-1'), false);
   assert.equal(isRecommendationCandidate(buildRepo({ visibility: 'private' }), 'viewer-1'), false);
   assert.equal(isRecommendationCandidate(buildRepo({ archived_at: new Date().toISOString() }), 'viewer-1'), false);
+});
+
+test('repo listing scopes include shared and starred collections', () => {
+  assert.ok(VALID_SCOPES.includes('shared'));
+  assert.ok(VALID_SCOPES.includes('starred'));
 });
 
 test('collaboration fit outranks popularity-only repos', () => {

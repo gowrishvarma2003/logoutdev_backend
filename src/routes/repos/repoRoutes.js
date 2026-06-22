@@ -9,6 +9,11 @@ const {
   deleteRepository,
 } = require('../../controllers/repos/repositoryController');
 const {
+  acceptRepoInvitation,
+  listRepoInvitations,
+  rejectRepoInvitation,
+} = require('../../controllers/repos/repoInvitationController');
+const {
   listRepoMembers,
   upsertRepoMember,
   removeRepoMember,
@@ -104,6 +109,9 @@ const router = express.Router();
 router.use(optionalAuthMiddleware);
 
 router.get('/', listRepositories);
+router.get('/invitations', authMiddleware, listRepoInvitations);
+router.post('/invitations/:memberId/accept', authMiddleware, acceptRepoInvitation);
+router.post('/invitations/:memberId/reject', authMiddleware, rejectRepoInvitation);
 router.get('/:repoId', getRepository);
 router.get('/:repoId/tree', getTree);
 router.get('/:repoId/blob', getBlob);

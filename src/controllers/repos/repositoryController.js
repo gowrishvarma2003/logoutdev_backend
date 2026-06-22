@@ -108,7 +108,7 @@ async function serializeRepo(repo, userId = null, options = {}) {
     RepoStar.count({ where: { repo_id: repo.id } }),
     RepoWatch.count({ where: { repo_id: repo.id } }),
     RepoFork.count({ where: { source_repo_id: repo.id } }),
-    ProjectSpaceRepoMember.count({ where: { repo_id: repo.id } }),
+    ProjectSpaceRepoMember.count({ where: { repo_id: repo.id, status: 'accepted' } }),
     userId ? RepoStar.findOne({ where: { repo_id: repo.id, user_id: userId }, attributes: ['id'] }) : Promise.resolve(null),
     userId ? RepoWatch.findOne({ where: { repo_id: repo.id, user_id: userId }, attributes: ['id', 'level'] }) : Promise.resolve(null),
     RepoFork.findOne({

@@ -21,12 +21,10 @@ const freelanceMeRoutes = require('./routes/freelance/freelanceMeRoutes');
 const app = express();
 
 app.use(cors({
-  origin: true, // allows all origins by reflecting the request origin
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
-
 
 app.use(requestLogger);
 app.use(express.json());
